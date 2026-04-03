@@ -1,0 +1,125 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String
+  password  String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("team_members")
+}
+
+model Provider {
+  id                 String    @id @default(cuid())
+  name               String
+  email              String    @unique
+  googleAccessToken  String?
+  googleRefreshToken String?
+  googleTokenExpiry  DateTime?
+  calendarId         String?
+  isActive           Boolean   @default(true)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  availabilities   Availability[]
+  bookings         Booking[]
+  providerServices ProviderService[]
+
+  @@map("providers")
+}
+
+model Service {
+  id          String  @id @default(cuid())
+  name        String
+  description String?
+  duration    Int
+  isActive    Boolean @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookings         Booking[]
+  providerServices ProviderService[]
+
+  @@map("services")
+}
+
+model ProviderService {
+  providerId String
+  serviceId  String
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  service  Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@id([providerId, serviceId])
+  @@map("provider_services")
+}
+
+model Availability {
+  id         String @id @default(cuid())
+  providerId String
+  dayOfWeek  Int
+  startTime  String
+  endTime    String
+
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@map("availabilities")
+}
+
+model Booking {
+  id            String    @id @default(cuid())
+  providerId    String
+  serviceId     String
+  lineUserId    String
+  customerName  String
+  customerPhone String
+  date          DateTime
+  startTime     String
+  endTime       String
+  status        String    @default("confirmed")
+  googleEventId String?
+  googleMeetUrl String?
+  notes         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  provider  Provider   @relation(fields: [providerId], references: [id])
+  service   Service    @relation(fields: [serviceId], references: [id])
+  reminders Reminder[]
+
+  @@index([providerId, date])
+  @@index([lineUserId])
+  @@map("bookings")
+}
+
+model Reminder {
+  id            String    @id @default(cuid())
+  bookingId     String
+  type          String
+  minutesBefore Int
+  scheduledAt   DateTime
+  sentAt        DateTime?
+
+  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([scheduledAt, sentAt])
+  @@map("reminders")
+}
+
+model ReminderRule {
+  id            String  @id @default(cuid())
+  serviceId     String?
+  type          String
+  minutesBefore Int
+
+  @@map("reminder_rules")
+}
