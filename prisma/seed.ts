@@ -15,6 +15,17 @@ async function main() {
     },
   });
   console.log("Seed complete: admin@example.com / admin123");
+
+  await prisma.reminderRule.createMany({
+    data: [
+      { type: "line", minutesBefore: 1440 },
+      { type: "line", minutesBefore: 60 },
+      { type: "email", minutesBefore: 1440 },
+      { type: "email", minutesBefore: 60 },
+    ],
+    skipDuplicates: true,
+  });
+  console.log("Seed complete: default reminder rules");
 }
 
 main()
