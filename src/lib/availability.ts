@@ -22,15 +22,31 @@ function isoToMinutes(iso: string): number {
 export async function getAvailableSlots(
   providerId: string,
   date: string,
-  serviceDuration: number
+  serviceDuration: number,
+  serviceBufferBefore: number = 0,
+  serviceBufferAfter: number = 0,
+  slotInterval: number = 30
 ): Promise<TimeSlot[]> {
   const dateObj = new Date(date + "T00:00:00+08:00");
   const dayOfWeek = dateObj.getDay();
 
-  // 1. Get provider's availability for this day of week
-  const availabilities = await prisma.availability.findMany({
-    where: { providerId, dayOfWeek },
+  // 1. Get provider's availability: match day of week OR "every day" (7)
+  const allAvailabilities = await prisma.availability.findMany({
+    where: {
+      providerId,
+      dayOfWeek: { in: [dayOfWeek, 7] },
+    },
     orderBy: { startTime: "asc" },
+  });
+
+  // Separate into available and excluded
+  const availabilities = allAvailabilities.filter((a) => a.type === "available" || !a.type);
+  const exclusions = allAvailabilities.filter((a) => a.type === "excluded");
+
+  // Filter exclusions: if specificDate is set, only apply when it matches
+  const activeExclusions = exclusions.filter((e) => {
+    if (e.specificDate) return e.specificDate === date;
+    return true; // no specificDate means applies every matching day
   });
 
   if (availabilities.length === 0) return [];
@@ -47,10 +63,15 @@ export async function getAvailableSlots(
     },
   });
 
-  const bookedSlots = bookings.map((b) => ({
-    start: timeToMinutes(b.startTime),
-    end: timeToMinutes(b.endTime),
-  }));
+  // Expand booked slots with service buffer (from the Service model)
+  const bookedSlots = bookings.map((b) => {
+    const bStart = timeToMinutes(b.startTime);
+    const bEnd = timeToMinutes(b.endTime);
+    return {
+      start: bStart - serviceBufferBefore,
+      end: bEnd + serviceBufferAfter,
+    };
+  });
 
   // 3. Get Google Calendar busy times
   let gcalBusy: { start: number; end: number }[] = [];
@@ -67,7 +88,15 @@ export async function getAvailableSlots(
     }
   }
 
-  const allBusy = [...bookedSlots, ...gcalBusy].sort((a, b) => a.start - b.start);
+  // Build excluded time ranges
+  const excludedRanges = activeExclusions.map((e) => ({
+    start: timeToMinutes(e.startTime),
+    end: timeToMinutes(e.endTime),
+  }));
+
+  const allBusy = [...bookedSlots, ...gcalBusy, ...excludedRanges].sort(
+    (a, b) => a.start - b.start
+  );
 
   // 4. Calculate available slots
   const now = new Date();
@@ -84,13 +113,17 @@ export async function getAvailableSlots(
     const availStart = timeToMinutes(avail.startTime);
     const availEnd = timeToMinutes(avail.endTime);
 
-    for (let start = availStart; start + serviceDuration <= availEnd; start += 30) {
+    for (let start = availStart; start + serviceDuration <= availEnd; start += slotInterval) {
       const end = start + serviceDuration;
 
       if (isToday && start <= currentMinutes) continue;
 
+      // Check with service buffer applied
+      const effectiveStart = start - serviceBufferBefore;
+      const effectiveEnd = end + serviceBufferAfter;
+
       const hasConflict = allBusy.some(
-        (busy) => start < busy.end && end > busy.start
+        (busy) => effectiveStart < busy.end && effectiveEnd > busy.start
       );
       if (hasConflict) continue;
 
@@ -114,7 +147,11 @@ export async function getAvailableDates(
     where: { providerId },
   });
 
-  const availableDays = new Set(availabilities.map((a) => a.dayOfWeek));
+  // Only consider "available" type slots for date listing
+  const availableOnly = availabilities.filter((a) => a.type === "available" || !a.type);
+  const availableDays = new Set(availableOnly.map((a) => a.dayOfWeek));
+  const hasEveryDay = availableDays.has(7);
+
   const dates: string[] = [];
 
   const daysInMonth = new Date(year, month, 0).getDate();
@@ -125,7 +162,8 @@ export async function getAvailableDates(
     if (dateStr < today) continue;
 
     const dateObj = new Date(dateStr + "T00:00:00+08:00");
-    if (!availableDays.has(dateObj.getDay())) continue;
+    const dow = dateObj.getDay();
+    if (!hasEveryDay && !availableDays.has(dow)) continue;
 
     dates.push(dateStr);
   }

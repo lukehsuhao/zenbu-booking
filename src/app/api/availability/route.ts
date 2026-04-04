@@ -25,7 +25,12 @@ export async function GET(req: NextRequest) {
   }
 
   if (date) {
-    const slots = await getAvailableSlots(providerId, date, duration);
+    const slots = await getAvailableSlots(
+      providerId, date, duration,
+      service?.bufferBefore || 0,
+      service?.bufferAfter || 0,
+      service?.slotInterval || 30
+    );
     return NextResponse.json({ slots });
   }
 

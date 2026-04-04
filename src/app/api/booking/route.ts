@@ -6,7 +6,7 @@ import { getAvailableSlots } from "@/lib/availability";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const {
+  let {
     providerId,
     serviceId,
     lineUserId,
@@ -18,7 +18,6 @@ export async function POST(req: NextRequest) {
   } = body;
 
   if (
-    !providerId ||
     !serviceId ||
     !lineUserId ||
     !customerName ||
@@ -37,8 +36,63 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Service not found" }, { status: 404 });
   }
 
+  // Round-robin auto-assignment when no provider specified
+  if (!providerId || service.assignmentMode === "round_robin") {
+    const activeProviders = await prisma.provider.findMany({
+      where: {
+        isActive: true,
+        providerServices: { some: { serviceId } },
+      },
+      select: { id: true },
+    });
+
+    if (activeProviders.length === 0) {
+      return NextResponse.json(
+        { error: "此服務目前無可用人員" },
+        { status: 400 }
+      );
+    }
+
+    // Pick the provider with fewest bookings in the next 7 days
+    const now = new Date();
+    const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    const providerIds = activeProviders.map((p) => p.id);
+
+    const bookingCounts = await prisma.booking.groupBy({
+      by: ["providerId"],
+      where: {
+        providerId: { in: providerIds },
+        date: { gte: now, lte: sevenDaysLater },
+        status: { not: "cancelled" },
+      },
+      _count: { id: true },
+    });
+
+    const countMap = new Map(bookingCounts.map((b) => [b.providerId, b._count.id]));
+    let minCount = Infinity;
+    let bestProviderId = providerIds[0];
+    for (const pid of providerIds) {
+      const count = countMap.get(pid) || 0;
+      if (count < minCount) {
+        minCount = count;
+        bestProviderId = pid;
+      }
+    }
+    providerId = bestProviderId;
+  }
+
+  if (!providerId) {
+    return NextResponse.json(
+      { error: "Missing provider" },
+      { status: 400 }
+    );
+  }
+
   // Verify slot is still available
-  const slots = await getAvailableSlots(providerId, date, service.duration);
+  const slots = await getAvailableSlots(
+    providerId, date, service.duration,
+    service.bufferBefore, service.bufferAfter, service.slotInterval
+  );
   const slotExists = slots.some((s) => s.startTime === startTime);
   if (!slotExists) {
     return NextResponse.json(
@@ -52,6 +106,9 @@ export async function POST(req: NextRequest) {
   const endMinutes = h * 60 + m + service.duration;
   const endTime = `${Math.floor(endMinutes / 60).toString().padStart(2, "0")}:${(endMinutes % 60).toString().padStart(2, "0")}`;
 
+  // Check if service requires approval
+  const isPending = service.requiresApproval === true;
+
   // Create booking
   const booking = await prisma.booking.create({
     data: {
@@ -64,16 +121,17 @@ export async function POST(req: NextRequest) {
       startTime,
       endTime,
       notes: notes || null,
+      ...(isPending ? { status: "pending" } : {}),
     },
   });
 
-  // Create Google Calendar event
+  // Create Google Calendar event (skip if pending approval)
   const provider = await prisma.provider.findUnique({
     where: { id: providerId },
   });
   let meetUrl: string | null = null;
 
-  if (provider?.googleAccessToken) {
+  if (!isPending && provider?.googleAccessToken) {
     const serviceRules = await prisma.reminderRule.findMany({
       where: { OR: [{ serviceId }, { serviceId: null }] },
     });
@@ -150,11 +208,18 @@ export async function POST(req: NextRequest) {
 
   // Send LINE confirmation
   try {
-    const meetInfo = meetUrl ? `\nGoogle Meet：${meetUrl}` : "";
-    await pushMessage(
-      lineUserId,
-      `預約確認！\n\n服務：${service.name}\n日期：${date}\n時間：${startTime} - ${endTime}${meetInfo}\n\n如需取消預約，請聯繫我們。`
-    );
+    if (isPending) {
+      await pushMessage(
+        lineUserId,
+        `您的預約已提交，等待審核中\n\n服務：${service.name}\n日期：${date}\n時間：${startTime} - ${endTime}\n\n審核通過後將另行通知。`
+      );
+    } else {
+      const meetInfo = meetUrl ? `\nGoogle Meet：${meetUrl}` : "";
+      await pushMessage(
+        lineUserId,
+        `預約確認！\n\n服務：${service.name}\n日期：${date}\n時間：${startTime} - ${endTime}${meetInfo}\n\n如需取消預約，請聯繫我們。`
+      );
+    }
   } catch (err) {
     console.error("Failed to send LINE message:", err);
   }

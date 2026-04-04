@@ -4,7 +4,7 @@ import { prisma } from "@/lib/prisma";
 export async function GET() {
   const services = await prisma.service.findMany({
     where: { isActive: true },
-    select: { id: true, name: true, description: true, duration: true },
+    select: { id: true, name: true, description: true, duration: true, assignmentMode: true, requiresApproval: true },
     orderBy: { name: "asc" },
   });
   return NextResponse.json(services);

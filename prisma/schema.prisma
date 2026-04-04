@@ -26,6 +26,10 @@ model Provider {
   googleRefreshToken String?
   googleTokenExpiry  DateTime?
   calendarId         String?
+  avatarUrl          String?
+  lineUserId         String?
+  password           String?
+  role               String    @default("provider") // "provider" | "admin"
   isActive           Boolean   @default(true)
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -38,16 +42,22 @@ model Provider {
 }
 
 model Service {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-  duration    Int
-  isActive    Boolean @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String  @id @default(cuid())
+  name           String
+  description    String?
+  duration         Int
+  bufferBefore     Int     @default(0)  // minutes before booking
+  bufferAfter      Int     @default(0)  // minutes after booking
+  slotInterval     Int     @default(30) // slot granularity in minutes (15, 30, 60)
+  assignmentMode   String  @default("manual") // "manual" | "round_robin"
+  requiresApproval Boolean @default(false)
+  isActive         Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   bookings         Booking[]
   providerServices ProviderService[]
+  formFields       FormField[]
 
   @@map("services")
 }
@@ -64,11 +74,15 @@ model ProviderService {
 }
 
 model Availability {
-  id         String @id @default(cuid())
-  providerId String
-  dayOfWeek  Int
-  startTime  String
-  endTime    String
+  id           String  @id @default(cuid())
+  providerId   String
+  dayOfWeek    Int     // 0-6 for Sun-Sat, 7 for "every day"
+  startTime    String
+  endTime      String
+  type         String  @default("available") // "available" | "excluded"
+  specificDate String? // for specific date exclusions, e.g. "2026-04-10"
+  bufferBefore Int     @default(0) // minutes before slot
+  bufferAfter  Int     @default(0) // minutes after slot
 
   provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
 
@@ -116,10 +130,48 @@ model Reminder {
 }
 
 model ReminderRule {
-  id            String  @id @default(cuid())
-  serviceId     String?
-  type          String
-  minutesBefore Int
+  id                      String  @id @default(cuid())
+  serviceId               String?
+  type                    String
+  minutesBefore           Int
+  messageTemplate         String?
+  notifyProvider          Boolean @default(false)
+  providerMessageTemplate String?
 
   @@map("reminder_rules")
+}
+
+model SiteSettings {
+  id    String @id @default("default")
+  /// JSON: which fields to show on confirmation page
+  /// e.g. ["service","provider","date","time","name","phone","notes"]
+  confirmationFields String @default("[\"service\",\"provider\",\"date\",\"time\",\"name\",\"phone\"]")
+  /// Color theme: "blue" | "teal" | "purple" | "custom"
+  colorTheme    String @default("blue")
+  /// Custom colors (hex) — used when colorTheme is "custom"
+  customPrimary String @default("#2563EB")
+  customAccent  String @default("#06B6D4")
+  /// How many days ahead customers can book (0 = unlimited)
+  bookingWindowDays Int @default(14)
+  showProviderAvatar Boolean @default(true)
+
+  @@map("site_settings")
+}
+
+model FormField {
+  id        String  @id @default(cuid())
+  serviceId String
+  key       String
+  label     String
+  type      String  // "text" | "textarea" | "radio" | "checkbox"
+  options   String? // JSON array for radio/checkbox
+  required  Boolean @default(false)
+  enabled   Boolean @default(true)
+  sortOrder Int     @default(0)
+  isBuiltin Boolean @default(false)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@unique([serviceId, key])
+  @@map("form_fields")
 }

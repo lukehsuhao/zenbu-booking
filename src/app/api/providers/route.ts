@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   const providers = await prisma.provider.findMany({
     where,
-    select: { id: true, name: true },
+    select: { id: true, name: true, avatarUrl: true },
     orderBy: { name: "asc" },
   });
 
