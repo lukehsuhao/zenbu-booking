@@ -31,6 +31,32 @@ export async function GET(
   return NextResponse.json(safe);
 }
 
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const session = await auth();
+  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  const user = session.user as { role?: string };
+  if (user.role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  const { id } = await params;
+
+  // Check if provider has any bookings
+  const bookingCount = await prisma.booking.count({ where: { providerId: id } });
+  if (bookingCount > 0) {
+    return NextResponse.json({
+      error: `此提供者有 ${bookingCount} 筆預約紀錄，無法刪除。請先處理相關預約。`,
+    }, { status: 400 });
+  }
+
+  await prisma.provider.delete({ where: { id } });
+  return NextResponse.json({ ok: true });
+}
+
 export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }

@@ -48,6 +48,11 @@ export async function GET(req: NextRequest) {
 
   const customers = await prisma.customer.findMany({
     where: customerWhere,
+    include: {
+      tickets: {
+        include: { service: { select: { id: true, name: true } } },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -60,6 +65,7 @@ export async function GET(req: NextRequest) {
   });
 
   // Build stats per customer
+  const now = new Date();
   const result = customers.map((customer) => {
     const customerBookings = bookings.filter((b) => b.lineUserId === customer.lineUserId);
     const totalBookings = customerBookings.length;
@@ -76,11 +82,31 @@ export async function GET(req: NextRequest) {
 
     const lastBookingDate = customerBookings.length > 0 ? customerBookings[0].date : null;
 
+    // Active tickets (not expired, has remaining)
+    const activeTickets = customer.tickets
+      .filter((t) => {
+        if (t.expiresAt && new Date(t.expiresAt) < now) return false;
+        return t.total - t.used > 0;
+      })
+      .map((t) => ({
+        id: t.id,
+        serviceId: t.serviceId,
+        serviceName: t.service.name,
+        remaining: t.total - t.used,
+        total: t.total,
+        expiresAt: t.expiresAt,
+      }));
+
+    // Strip tickets from spread to avoid dumping all ticket fields
+    const { tickets: _tickets, ...customerFields } = customer;
+    void _tickets;
+
     return {
-      ...customer,
+      ...customerFields,
       totalBookings,
       services,
       lastBookingDate,
+      activeTickets,
     };
   });
 

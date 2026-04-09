@@ -303,7 +303,7 @@ export default function SettingsPage() {
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時機</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時間</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">適用服務</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40">訊息</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">訊息</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -407,21 +407,21 @@ export default function SettingsPage() {
                         {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
                     </td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         <button
                           onClick={() => setExpandedTemplate(isExpanded ? null : index)}
-                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                             isExpanded
                               ? "text-[#2563EB] bg-blue-50"
                               : "text-gray-700 hover:bg-slate-100"
                           }`}
-                          title="編輯訊息"
+                          title="編輯"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                           </svg>
-                          編輯訊息
+                          編輯
                         </button>
                         <button
                           onClick={() => removeRule(index)}

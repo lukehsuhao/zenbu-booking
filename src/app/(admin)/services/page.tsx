@@ -303,7 +303,7 @@ export default function ServicesPage() {
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">審核</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">服務人員</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">啟用</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40">操作</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -392,11 +392,11 @@ export default function ServicesPage() {
                       }`} />
                     </button>
                   </td>
-                  <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-1">
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-1 whitespace-nowrap">
                       <button
                         onClick={() => toggleExpanded(s.id)}
-                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
                           expandedService === s.id
                             ? "text-[#2563EB] bg-blue-50"
                             : "text-gray-700 hover:bg-slate-100"
@@ -406,17 +406,17 @@ export default function ServicesPage() {
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
                         </svg>
-                        表單欄位
+                        表單
                       </button>
                       <button
                         onClick={() => { setEditing(s); setShowForm(true); }}
-                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:text-[#2563EB] hover:bg-blue-50 transition-colors whitespace-nowrap"
                         title="編輯服務"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                         </svg>
-                        編輯服務
+                        編輯
                       </button>
                     </div>
                   </td>

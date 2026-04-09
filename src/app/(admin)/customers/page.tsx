@@ -11,6 +11,15 @@ type ServiceStat = {
   count: number;
 };
 
+type ActiveTicket = {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  remaining: number;
+  total: number;
+  expiresAt: string | null;
+};
+
 type Customer = {
   id: string;
   lineUserId: string;
@@ -26,6 +35,7 @@ type Customer = {
   totalBookings: number;
   services: ServiceStat[];
   lastBookingDate: string | null;
+  activeTickets: ActiveTicket[];
 };
 
 type BookingRecord = {
@@ -104,7 +114,24 @@ export default function CustomersPage() {
   // Message dialog
   const [showMessageDialog, setShowMessageDialog] = useState(false);
   const [messageText, setMessageText] = useState("");
+  const [messageChannel, setMessageChannel] = useState<"line" | "email">("line");
+  const [messageSubject, setMessageSubject] = useState("");
   const [sending, setSending] = useState(false);
+
+  // Bulk dialogs
+  const [showBulkPoints, setShowBulkPoints] = useState(false);
+  const [bulkPointsAmount, setBulkPointsAmount] = useState("");
+  const [bulkPointsNotes, setBulkPointsNotes] = useState("");
+  const [processingPoints, setProcessingPoints] = useState(false);
+
+  const [showBulkTickets, setShowBulkTickets] = useState(false);
+  const [bulkTicketsServiceId, setBulkTicketsServiceId] = useState("");
+  const [bulkTicketsTotal, setBulkTicketsTotal] = useState("");
+  const [bulkTicketsExpiresAt, setBulkTicketsExpiresAt] = useState("");
+  const [processingTickets, setProcessingTickets] = useState(false);
+
+  const [showBulkDelete, setShowBulkDelete] = useState(false);
+  const [processingDelete, setProcessingDelete] = useState(false);
 
   // Notification
   const [notification, setNotification] = useState<{ type: "success" | "error"; message: string } | null>(null);
@@ -115,7 +142,7 @@ export default function CustomersPage() {
   const [blocking, setBlocking] = useState(false);
 
   // Block filter
-  const [showBlockedOnly, setShowBlockedOnly] = useState(false);
+  const [blockedFilter, setBlockedFilter] = useState<"" | "blocked" | "unblocked">("");
 
   const role = session?.user?.role || "admin";
   const isAdmin = role === "admin";
@@ -362,22 +389,123 @@ export default function CustomersPage() {
     setShowMessageDialog(true);
   }
 
+  function openBulkPoints() {
+    setBulkPointsAmount("");
+    setBulkPointsNotes("");
+    setShowBulkPoints(true);
+  }
+
+  function openBulkTickets() {
+    setBulkTicketsServiceId("");
+    setBulkTicketsTotal("");
+    setBulkTicketsExpiresAt("");
+    setShowBulkTickets(true);
+  }
+
+  function openBulkDelete() {
+    setShowBulkDelete(true);
+  }
+
+  async function handleBulkPoints() {
+    const amount = Number(bulkPointsAmount);
+    if (!amount || isNaN(amount)) { showNotification("error", "請輸入有效的點數"); return; }
+    setProcessingPoints(true);
+    let success = 0;
+    let fail = 0;
+    for (const id of selectedIds) {
+      try {
+        const res = await fetch(`/api/admin/customers/${id}/points`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ amount, reason: "admin_adjust", notes: bulkPointsNotes }),
+        });
+        if (res.ok) success++;
+        else fail++;
+      } catch { fail++; }
+    }
+    showNotification(fail === 0 ? "success" : "error", `已調整 ${success} 位用戶的點數${fail > 0 ? `，${fail} 位失敗` : ""}`);
+    setProcessingPoints(false);
+    setShowBulkPoints(false);
+    setSelectedIds(new Set());
+    loadCustomers();
+  }
+
+  async function handleBulkTickets() {
+    if (!bulkTicketsServiceId) { showNotification("error", "請選擇服務"); return; }
+    const total = Number(bulkTicketsTotal);
+    if (!total || total <= 0) { showNotification("error", "請輸入有效的張數"); return; }
+    setProcessingTickets(true);
+    let success = 0;
+    let fail = 0;
+    for (const id of selectedIds) {
+      try {
+        const res = await fetch(`/api/admin/customers/${id}/tickets`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            serviceId: bulkTicketsServiceId,
+            total,
+            expiresAt: bulkTicketsExpiresAt || null,
+          }),
+        });
+        if (res.ok) success++;
+        else fail++;
+      } catch { fail++; }
+    }
+    showNotification(fail === 0 ? "success" : "error", `已發放 ${success} 張票券${fail > 0 ? `，${fail} 位失敗` : ""}`);
+    setProcessingTickets(false);
+    setShowBulkTickets(false);
+    setSelectedIds(new Set());
+    loadCustomers();
+  }
+
+  async function handleBulkDelete() {
+    setProcessingDelete(true);
+    let success = 0;
+    let fail = 0;
+    for (const id of selectedIds) {
+      try {
+        const res = await fetch(`/api/admin/customers/${id}`, { method: "DELETE" });
+        if (res.ok) success++;
+        else fail++;
+      } catch { fail++; }
+    }
+    showNotification(fail === 0 ? "success" : "error", `已刪除 ${success} 位用戶${fail > 0 ? `，${fail} 位失敗` : ""}`);
+    setProcessingDelete(false);
+    setShowBulkDelete(false);
+    setSelectedIds(new Set());
+    loadCustomers();
+  }
+
   async function handleSendMessage() {
     if (!messageText.trim()) return;
+    if (messageChannel === "email" && !messageSubject.trim()) {
+      showNotification("error", "請輸入 Email 主旨");
+      return;
+    }
     setSending(true);
     try {
       const res = await fetch("/api/admin/customers/message", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ customerIds: Array.from(selectedIds), message: messageText }),
+        body: JSON.stringify({
+          customerIds: Array.from(selectedIds),
+          message: messageText,
+          channel: messageChannel,
+          subject: messageSubject || "通知訊息",
+        }),
       });
       if (res.ok) {
         const data = await res.json();
-        showNotification("success", `已發送 ${data.successCount} 則訊息${data.failCount > 0 ? `，${data.failCount} 則失敗` : ""}`);
+        const parts = [`已發送 ${data.successCount} 則`];
+        if (data.failCount > 0) parts.push(`失敗 ${data.failCount}`);
+        if (data.skippedCount > 0) parts.push(`跳過 ${data.skippedCount}（無 Email）`);
+        showNotification("success", parts.join("，"));
         setShowMessageDialog(false);
         setSelectedIds(new Set());
       } else {
-        showNotification("error", "發送失敗");
+        const err = await res.json().catch(() => ({}));
+        showNotification("error", err.error || "發送失敗");
       }
     } catch {
       showNotification("error", "發送失敗");
@@ -414,7 +542,11 @@ export default function CustomersPage() {
   }
 
   // Pagination
-  const filteredCustomers = showBlockedOnly ? customers.filter((c) => c.isBlocked) : customers;
+  const filteredCustomers = blockedFilter === "blocked"
+    ? customers.filter((c) => c.isBlocked)
+    : blockedFilter === "unblocked"
+    ? customers.filter((c) => !c.isBlocked)
+    : customers;
   const totalItems = filteredCustomers.length;
   const totalPages = Math.ceil(totalItems / pageSize);
   const paginatedCustomers = filteredCustomers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
@@ -455,7 +587,7 @@ export default function CustomersPage() {
 
       {/* Filters */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 mb-1">搜尋</label>
             <div className="relative">
@@ -521,38 +653,88 @@ export default function CustomersPage() {
               />
             </div>
           </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">封鎖狀態</label>
+            <select
+              value={blockedFilter}
+              onChange={(e) => setBlockedFilter(e.target.value as "" | "blocked" | "unblocked")}
+              className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+            >
+              <option value="">全部</option>
+              <option value="unblocked">僅顯示未封鎖</option>
+              <option value="blocked">僅顯示已封鎖</option>
+            </select>
+          </div>
         </div>
-        <div className="mt-4 flex items-center gap-2 flex-wrap">
-          <button
-            onClick={() => setShowBlockedOnly((v) => !v)}
-            className={`h-8 px-3 border rounded-lg text-xs font-medium transition-colors ${
-              showBlockedOnly
-                ? "bg-red-50 text-red-700 border-red-200"
-                : "bg-white text-gray-700 border-gray-200 hover:bg-gray-100"
-            }`}
-          >
-            已封鎖
-          </button>
-          {(search || serviceFilter || statusFilter || minBookings || maxBookings || showBlockedOnly) && (
+        {(search || serviceFilter || statusFilter || minBookings || maxBookings || blockedFilter) && (
+          <div className="mt-3 flex justify-end">
             <button
-              onClick={() => { setSearch(""); setServiceFilter(""); setStatusFilter(""); setMinBookings(""); setMaxBookings(""); setShowBlockedOnly(false); }}
+              onClick={() => { setSearch(""); setServiceFilter(""); setStatusFilter(""); setMinBookings(""); setMaxBookings(""); setBlockedFilter(""); }}
               className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
             >
               清除篩選
             </button>
-          )}
-          <div className="flex-1" />
-          <button
-            onClick={openMessageDialog}
-            className="inline-flex items-center gap-2 h-9 px-4 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors"
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-            </svg>
-            發送訊息{selectedIds.size > 0 ? ` (${selectedIds.size})` : ""}
-          </button>
-        </div>
+          </div>
+        )}
       </div>
+
+      {/* Bulk action bar (shown only when items selected) */}
+      {selectedIds.size > 0 && (
+        <div className="bg-blue-50 rounded-xl border border-blue-200 p-4 mb-4 flex items-center justify-between flex-wrap gap-3">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 text-sm font-medium text-[#2563EB]">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+              </svg>
+              已選取 {selectedIds.size} 位用戶
+            </span>
+            <button
+              onClick={() => setSelectedIds(new Set())}
+              className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              清除選取
+            </button>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={openMessageDialog}
+              className="inline-flex items-center gap-1.5 h-9 px-4 bg-[#2563EB] text-white rounded-lg text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+              </svg>
+              發送訊息
+            </button>
+            <button
+              onClick={openBulkPoints}
+              className="inline-flex items-center gap-1.5 h-9 px-4 bg-amber-500 text-white rounded-lg text-sm font-medium hover:bg-amber-600 shadow-sm transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941" />
+              </svg>
+              調整點數
+            </button>
+            <button
+              onClick={openBulkTickets}
+              className="inline-flex items-center gap-1.5 h-9 px-4 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 shadow-sm transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M16.5 6v.75m0 3v.75m0 3v.75m0 3V18m-9-5.25h5.25M7.5 15h3M3.375 5.25c-.621 0-1.125.504-1.125 1.125v3.026a2.999 2.999 0 010 5.198v3.026c0 .621.504 1.125 1.125 1.125h17.25c.621 0 1.125-.504 1.125-1.125v-3.026a2.999 2.999 0 010-5.198V6.375c0-.621-.504-1.125-1.125-1.125H3.375z" />
+              </svg>
+              發放票券
+            </button>
+            <button
+              onClick={openBulkDelete}
+              className="inline-flex items-center gap-1.5 h-9 px-4 bg-red-500 text-white rounded-lg text-sm font-medium hover:bg-red-600 shadow-sm transition-colors"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+              </svg>
+              刪除用戶
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Table */}
       {loading ? (
@@ -576,13 +758,14 @@ export default function CustomersPage() {
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">點數</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">預約次數</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">常用服務</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">操作</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">票券</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {customers.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="px-5 py-12 text-center">
+                  <td colSpan={8} className="px-5 py-12 text-center">
                     <div className="flex flex-col items-center">
                       <svg className="w-10 h-10 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -647,10 +830,46 @@ export default function CustomersPage() {
                     </div>
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      {c.activeTickets.length === 0 ? (
+                        <span className="text-xs text-slate-300">-</span>
+                      ) : (
+                        <>
+                          {c.activeTickets.slice(0, 2).map((t) => (
+                            <span
+                              key={t.id}
+                              className="inline-flex items-center px-2 py-0.5 rounded-md bg-emerald-50 text-xs font-medium text-emerald-700"
+                            >
+                              {t.serviceName}
+                              <span className="ml-1 text-emerald-500">x{t.remaining}</span>
+                            </span>
+                          ))}
+                          {c.activeTickets.length > 2 && (
+                            <span className="relative group inline-block">
+                              <span className="text-[10px] px-2 py-0.5 rounded-md bg-slate-100 text-gray-500 font-medium cursor-default">
+                                +{c.activeTickets.length - 2}
+                              </span>
+                              <span className="invisible group-hover:visible absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 whitespace-nowrap bg-gray-700 text-white text-[11px] px-2 py-1 rounded-md shadow-lg">
+                                <span className="flex flex-col">
+                                  {c.activeTickets.slice(2).map((t) => (
+                                    <span key={t.id}>
+                                      {t.serviceName} x{t.remaining}
+                                    </span>
+                                  ))}
+                                </span>
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-700" />
+                              </span>
+                            </span>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-5 py-3.5 whitespace-nowrap">
+                    <div className="flex items-center gap-2 whitespace-nowrap">
                       <button
                         onClick={() => openEditModal(c)}
-                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-[#2563EB] transition-colors"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-gray-700 hover:text-[#2563EB] transition-colors whitespace-nowrap"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -1018,36 +1237,226 @@ export default function CustomersPage() {
         </div>
       )}
 
+      {/* Bulk Points Dialog */}
+      {showBulkPoints && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowBulkPoints(false)} />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">批次調整點數</h3>
+              <p className="text-sm text-gray-500 mb-4">將調整 {selectedIds.size} 位用戶的點數</p>
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">調整數量（正數加點、負數扣點）</label>
+                <input
+                  type="number"
+                  value={bulkPointsAmount}
+                  onChange={(e) => setBulkPointsAmount(e.target.value)}
+                  placeholder="例：100 或 -50"
+                  className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                />
+              </div>
+              <div className="mb-5">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">備註（選填）</label>
+                <input
+                  type="text"
+                  value={bulkPointsNotes}
+                  onChange={(e) => setBulkPointsNotes(e.target.value)}
+                  placeholder="例：春季活動贈點"
+                  className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition-all"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowBulkPoints(false)} className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">取消</button>
+                <button
+                  onClick={handleBulkPoints}
+                  disabled={processingPoints || !bulkPointsAmount}
+                  className="inline-flex items-center gap-2 bg-amber-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-amber-600 shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {processingPoints ? "處理中..." : "確認調整"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Tickets Dialog */}
+      {showBulkTickets && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowBulkTickets(false)} />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md mx-4">
+            <div className="p-6">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">批次發放票券</h3>
+              <p className="text-sm text-gray-500 mb-4">將發放給 {selectedIds.size} 位用戶</p>
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">服務</label>
+                <select
+                  value={bulkTicketsServiceId}
+                  onChange={(e) => setBulkTicketsServiceId(e.target.value)}
+                  className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                >
+                  <option value="">請選擇服務</option>
+                  {allServices.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">張數</label>
+                <input
+                  type="number"
+                  min={1}
+                  value={bulkTicketsTotal}
+                  onChange={(e) => setBulkTicketsTotal(e.target.value)}
+                  placeholder="每人發放張數"
+                  className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                />
+              </div>
+              <div className="mb-5">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">到期日（選填）</label>
+                <input
+                  type="date"
+                  value={bulkTicketsExpiresAt}
+                  onChange={(e) => setBulkTicketsExpiresAt(e.target.value)}
+                  className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                />
+              </div>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowBulkTickets(false)} className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">取消</button>
+                <button
+                  onClick={handleBulkTickets}
+                  disabled={processingTickets || !bulkTicketsServiceId || !bulkTicketsTotal}
+                  className="inline-flex items-center gap-2 bg-emerald-600 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-emerald-700 shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {processingTickets ? "處理中..." : "確認發放"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Bulk Delete Dialog */}
+      {showBulkDelete && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setShowBulkDelete(false)} />
+          <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md mx-4">
+            <div className="p-6">
+              <div className="flex items-center gap-2 mb-1">
+                <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
+                </svg>
+                <h3 className="text-lg font-bold text-gray-900">批次刪除用戶</h3>
+              </div>
+              <p className="text-sm text-gray-500 mb-4">
+                即將刪除 <span className="font-medium text-red-600">{selectedIds.size}</span> 位用戶。此操作無法復原，相關的預約、點數、票券紀錄都會一併刪除。
+              </p>
+              <div className="flex gap-2 justify-end">
+                <button onClick={() => setShowBulkDelete(false)} className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors">取消</button>
+                <button
+                  onClick={handleBulkDelete}
+                  disabled={processingDelete}
+                  className="inline-flex items-center gap-2 bg-red-500 text-white px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-red-600 shadow-sm transition-colors disabled:opacity-50"
+                >
+                  {processingDelete ? "處理中..." : "確認刪除"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showMessageDialog && (
         <div className="fixed inset-0 z-40 flex items-center justify-center">
           <div className="absolute inset-0 bg-black/30" onClick={() => setShowMessageDialog(false)} />
           <div className="relative bg-white rounded-xl shadow-xl border border-gray-200 w-full max-w-md mx-4">
             <div className="p-6">
-              <h3 className="text-lg font-bold text-gray-900 mb-1">發送 LINE 訊息</h3>
-              <p className="text-sm text-gray-500 mb-5">將發送給 {selectedIds.size} 位用戶</p>
-              <textarea
-                value={messageText}
-                onChange={(e) => setMessageText(e.target.value)}
-                rows={5}
-                className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm bg-[#F8FAFC] focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] focus:bg-white transition-all resize-none"
-                placeholder="輸入訊息內容..."
-              />
-              <div className="flex gap-2 mt-5">
+              <h3 className="text-lg font-bold text-gray-900 mb-1">發送訊息</h3>
+              <p className="text-sm text-gray-500 mb-4">將發送給 {selectedIds.size} 位用戶</p>
+
+              {/* Channel selector */}
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-500 mb-2">發送方式</label>
+                <div className="inline-flex rounded-lg border border-gray-200 overflow-hidden">
+                  <button
+                    type="button"
+                    onClick={() => setMessageChannel("line")}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium transition-colors ${
+                      messageChannel === "line"
+                        ? "bg-[#06C755] text-white"
+                        : "bg-white text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+                    </svg>
+                    LINE
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMessageChannel("email")}
+                    className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium border-l border-gray-200 transition-colors ${
+                      messageChannel === "email"
+                        ? "bg-[#2563EB] text-white"
+                        : "bg-white text-gray-700 hover:bg-gray-100"
+                    }`}
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" />
+                    </svg>
+                    Email
+                  </button>
+                </div>
+                {messageChannel === "email" && (
+                  <p className="text-[11px] text-gray-500 mt-1.5">
+                    沒有 Email 的用戶將自動跳過
+                  </p>
+                )}
+              </div>
+
+              {/* Email subject (only for email channel) */}
+              {messageChannel === "email" && (
+                <div className="mb-4">
+                  <label className="block text-xs font-medium text-gray-500 mb-1.5">主旨</label>
+                  <input
+                    type="text"
+                    value={messageSubject}
+                    onChange={(e) => setMessageSubject(e.target.value)}
+                    placeholder="Email 主旨"
+                    className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+                  />
+                </div>
+              )}
+
+              <div className="mb-5">
+                <label className="block text-xs font-medium text-gray-500 mb-1.5">訊息內容</label>
+                <textarea
+                  value={messageText}
+                  onChange={(e) => setMessageText(e.target.value)}
+                  rows={6}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all resize-none"
+                  placeholder="輸入訊息內容..."
+                />
+              </div>
+
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setShowMessageDialog(false)}
+                  className="px-5 py-2.5 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-100 transition-colors"
+                >
+                  取消
+                </button>
                 <button
                   onClick={handleSendMessage}
-                  disabled={sending || !messageText.trim()}
-                  className="inline-flex items-center gap-2 bg-[#2563EB] text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-700 shadow-sm transition-colors duration-150 disabled:opacity-50"
+                  disabled={sending || !messageText.trim() || (messageChannel === "email" && !messageSubject.trim())}
+                  className={`inline-flex items-center gap-2 text-white px-5 py-2.5 rounded-lg text-sm font-medium shadow-sm transition-colors disabled:opacity-50 ${
+                    messageChannel === "line" ? "bg-[#06C755] hover:bg-[#05a847]" : "bg-[#2563EB] hover:bg-blue-700"
+                  }`}
                 >
                   <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
                   </svg>
-                  {sending ? "發送中..." : "發送"}
-                </button>
-                <button
-                  onClick={() => setShowMessageDialog(false)}
-                  className="px-5 py-2.5 rounded-xl text-sm font-medium text-gray-700 bg-slate-100 hover:bg-slate-200 transition-colors duration-150"
-                >
-                  取消
+                  {sending ? "發送中..." : `發送 ${messageChannel === "line" ? "LINE" : "Email"}`}
                 </button>
               </div>
             </div>

@@ -479,7 +479,7 @@ export default function BookingsPage() {
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">提供者</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">備註</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">狀態</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-48">操作</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -535,8 +535,8 @@ export default function BookingsPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-gray-100 text-slate-700 ring-1 ring-inset ring-slate-600/20 ml-1">現金</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5 w-48">
-                      <div className="flex items-center gap-2 min-w-[180px]">
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-2 whitespace-nowrap">
                         {editable && b.status === "pending" && (
                           <button
                             onClick={() => handleApprove(b.id)}

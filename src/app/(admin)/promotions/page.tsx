@@ -459,12 +459,13 @@ export default function PromotionsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-100 border-b border-gray-200">
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-16">啟用</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">活動名稱</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">活動期間</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">獎勵</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">適用服務</th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">狀態</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-36">操作</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-32">操作</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -488,7 +489,7 @@ export default function PromotionsPage() {
 
               if (filtered.length === 0) return (
                 <tr>
-                  <td colSpan={6} className="px-5 py-12 text-center">
+                  <td colSpan={7} className="px-5 py-12 text-center">
                     <p className="text-gray-500 text-sm">
                       {promotions.length === 0 ? "尚未建立任何活動" : "沒有符合篩選條件的活動"}
                     </p>
@@ -501,6 +502,19 @@ export default function PromotionsPage() {
                 const svcIds = parseServiceIds(p.serviceIds);
                 return (
                   <tr key={p.id} className={`hover:bg-gray-100/50 transition-colors duration-100 ${idx % 2 === 1 ? "bg-gray-100/30" : ""}`}>
+                    <td className="px-5 py-3.5">
+                      <button
+                        onClick={() => toggleActiveStatus(p)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                          p.isActive ? "bg-[#2563EB]" : "bg-slate-200"
+                        }`}
+                        title={p.isActive ? "停用" : "啟用"}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                          p.isActive ? "translate-x-5" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </td>
                     <td className="px-5 py-3.5">
                       <div className="font-medium text-gray-900">{p.name}</div>
                       {p.description && <div className="text-xs text-gray-500 mt-0.5">{p.description}</div>}
@@ -541,28 +555,17 @@ export default function PromotionsPage() {
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-gray-500">已停用</span>
                       )}
                     </td>
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => toggleActiveStatus(p)}
-                          className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-                            p.isActive ? "bg-[#2563EB]" : "bg-slate-200"
-                          }`}
-                          title={p.isActive ? "停用" : "啟用"}
-                        >
-                          <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                            p.isActive ? "translate-x-5" : "translate-x-1"
-                          }`} />
-                        </button>
+                    <td className="px-5 py-3.5 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
                         <button
                           onClick={() => openEdit(p)}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:text-[#2563EB] hover:bg-blue-50 transition-colors whitespace-nowrap"
                           title="編輯活動"
                         >
-                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                             <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                           </svg>
-                          編輯活動
+                          編輯
                         </button>
                         <button
                           onClick={() => handleDelete(p.id)}
