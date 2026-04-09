@@ -54,7 +54,7 @@ export function TimeSlotPicker({ providerId, serviceId, date, onSelect }: {
       <div className="grid grid-cols-3 gap-2">
         {list.map((slot) => (
           <button
-            key={slot.startTime}
+            key={`${slot.startTime}-${slot.endTime}`}
             onClick={() => onSelect(slot)}
             className="rounded-xl py-3 text-center text-sm font-medium transition-all duration-200 active:scale-95"
             style={{

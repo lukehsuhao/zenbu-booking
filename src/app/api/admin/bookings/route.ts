@@ -23,7 +23,10 @@ export async function GET(req: NextRequest) {
     where.providerId = filterProviderId;
   }
 
-  if (status) where.status = status;
+  if (status) {
+    const statuses = status.split(",").filter(Boolean);
+    where.status = statuses.length === 1 ? statuses[0] : { in: statuses };
+  }
   if (serviceId) where.serviceId = serviceId;
 
   // Date range or single date

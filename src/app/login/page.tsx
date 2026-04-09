@@ -1,14 +1,17 @@
 "use client";
 
 import { signIn } from "next-auth/react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [mounted, setMounted] = useState(false);
   const router = useRouter();
+
+  useEffect(() => { setMounted(true); }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -81,6 +84,19 @@ export default function LoginPage() {
             登入
           </button>
         </form>
+
+        {/* Dev accounts */}
+        {mounted && <div className="mt-6 p-4 rounded-xl bg-slate-50 border border-slate-200">
+          <p className="text-xs font-medium text-slate-400 mb-2">開發用帳號</p>
+          <div className="space-y-1.5">
+            <button type="button" onClick={() => { setEmail("admin@example.com"); setPassword("admin123"); }} className="w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white transition-colors">
+              <span className="font-medium text-[#1E293B]">管理員</span> <span className="text-slate-400">admin@example.com / admin123</span>
+            </button>
+            <button type="button" onClick={() => { setEmail("amy@example.com"); setPassword("provider123"); }} className="w-full text-left text-xs px-3 py-2 rounded-lg hover:bg-white transition-colors">
+              <span className="font-medium text-[#1E293B]">服務提供者</span> <span className="text-slate-400">amy@example.com / provider123</span>
+            </button>
+          </div>
+        </div>}
       </div>
     </div>
   );

@@ -10,18 +10,21 @@ export async function POST(req: NextRequest) {
     providerId,
     serviceId,
     lineUserId,
+    linePictureUrl,
+    lineDisplayName,
     customerName,
     customerPhone,
     date,
     startTime,
     notes,
+    paidWith,
+    ticketId,
+    pointsUsed,
   } = body;
 
   if (
     !serviceId ||
     !lineUserId ||
-    !customerName ||
-    !customerPhone ||
     !date ||
     !startTime
   ) {
@@ -30,6 +33,19 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+
+  // Check if customer is blocked
+  const existingCustomer = await prisma.customer.findUnique({ where: { lineUserId } });
+  if (existingCustomer?.isBlocked) {
+    return NextResponse.json(
+      { error: "您的帳號已被停用，無法進行預約。如有疑問請聯繫客服。" },
+      { status: 403 }
+    );
+  }
+
+  // Default empty strings for optional customer fields
+  if (!customerName) customerName = "";
+  if (!customerPhone) customerPhone = "";
 
   const service = await prisma.service.findUnique({ where: { id: serviceId } });
   if (!service) {
@@ -125,6 +141,73 @@ export async function POST(req: NextRequest) {
     },
   });
 
+  // Process payment
+  const paymentMethod = paidWith || null;
+  const paymentTicketId = ticketId || null;
+  const paymentPointsUsed = pointsUsed || 0;
+
+  if (paymentMethod === "ticket" && paymentTicketId) {
+    await prisma.customerTicket.update({
+      where: { id: paymentTicketId },
+      data: { used: { increment: 1 } },
+    });
+  }
+
+  if (paymentMethod === "points" && paymentPointsUsed > 0) {
+    const customer = await prisma.customer.findUnique({ where: { lineUserId } });
+    if (!customer || customer.points < paymentPointsUsed) {
+      return NextResponse.json({ error: "點數不足" }, { status: 400 });
+    }
+    await prisma.$transaction([
+      prisma.customer.update({ where: { lineUserId }, data: { points: { decrement: paymentPointsUsed } } }),
+      prisma.pointTransaction.create({
+        data: { customerId: customer.id, amount: -paymentPointsUsed, reason: "booking", bookingId: booking.id },
+      }),
+    ]);
+  }
+
+  if (paymentMethod) {
+    await prisma.booking.update({
+      where: { id: booking.id },
+      data: { paidWith: paymentMethod, ticketId: paymentTicketId, pointsUsed: paymentPointsUsed },
+    });
+  }
+
+  // Check active promotions and award rewards
+  try {
+    const now = new Date();
+    const promotions = await prisma.promotion.findMany({
+      where: { isActive: true, startDate: { lte: now }, endDate: { gte: now } },
+    });
+
+    for (const promo of promotions) {
+      const applicableServiceIds = promo.serviceIds ? JSON.parse(promo.serviceIds) : null;
+      if (applicableServiceIds && !applicableServiceIds.includes(serviceId)) continue;
+
+      const customer = await prisma.customer.findUnique({ where: { lineUserId } });
+      if (!customer) continue;
+
+      // Award points
+      if ((promo.rewardType === "points" || promo.rewardType === "both") && promo.rewardPoints > 0) {
+        await prisma.$transaction([
+          prisma.customer.update({ where: { id: customer.id }, data: { points: { increment: promo.rewardPoints } } }),
+          prisma.pointTransaction.create({
+            data: { customerId: customer.id, amount: promo.rewardPoints, reason: "reward", bookingId: booking.id, notes: `活動獎勵：${promo.name}` },
+          }),
+        ]);
+      }
+
+      // Award tickets
+      if ((promo.rewardType === "tickets" || promo.rewardType === "both") && promo.rewardTickets > 0 && promo.ticketServiceId) {
+        await prisma.customerTicket.create({
+          data: { customerId: customer.id, serviceId: promo.ticketServiceId, total: promo.rewardTickets, notes: `活動獎勵：${promo.name}` },
+        });
+      }
+    }
+  } catch (err) {
+    console.error("Failed to process promotion rewards:", err);
+  }
+
   // Create Google Calendar event (skip if pending approval)
   const provider = await prisma.provider.findUnique({
     where: { id: providerId },
@@ -163,6 +246,28 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.error("Failed to create calendar event:", err);
     }
+  }
+
+  // Upsert customer record
+  try {
+    await prisma.customer.upsert({
+      where: { lineUserId },
+      update: {
+        displayName: customerName || lineDisplayName || undefined,
+        phone: customerPhone || undefined,
+        pictureUrl: linePictureUrl || undefined,
+        email: body.customerEmail || undefined,
+      },
+      create: {
+        lineUserId,
+        displayName: customerName || lineDisplayName || "",
+        phone: customerPhone || "",
+        pictureUrl: linePictureUrl || "",
+        email: body.customerEmail || "",
+      },
+    });
+  } catch (err) {
+    console.error("Failed to upsert customer:", err);
   }
 
   // Create LINE reminders
@@ -222,6 +327,40 @@ export async function POST(req: NextRequest) {
     }
   } catch (err) {
     console.error("Failed to send LINE message:", err);
+  }
+
+  // Send admin notifications if enabled on the service
+  if (service.notifyAdminOnBooking) {
+    try {
+      const admins = await prisma.teamMember.findMany({
+        where: { lineUserId: { not: null } },
+        select: { lineUserId: true },
+      });
+
+      const DEFAULT_ADMIN_BOOKING_MSG = "【新預約】{{姓名}} 預約了 {{服務名稱}}（{{日期}} {{時間}}），提供者：{{提供者}}。";
+      const template = service.adminBookingMessage || DEFAULT_ADMIN_BOOKING_MSG;
+      const adminMessage = template
+        .replace(/\{\{姓名\}\}/g, customerName)
+        .replace(/\{\{電話\}\}/g, customerPhone)
+        .replace(/\{\{Email\}\}/g, body.customerEmail || "")
+        .replace(/\{\{服務名稱\}\}/g, service.name)
+        .replace(/\{\{提供者\}\}/g, provider?.name || "")
+        .replace(/\{\{日期\}\}/g, date)
+        .replace(/\{\{時間\}\}/g, `${startTime} - ${endTime}`)
+        .replace(/\{\{備註\}\}/g, notes || "");
+
+      for (const admin of admins) {
+        if (admin.lineUserId) {
+          try {
+            await pushMessage(admin.lineUserId, adminMessage);
+          } catch (adminErr) {
+            console.error("Failed to send admin booking notification:", adminErr);
+          }
+        }
+      }
+    } catch (err) {
+      console.error("Failed to send admin booking notifications:", err);
+    }
   }
 
   return NextResponse.json(

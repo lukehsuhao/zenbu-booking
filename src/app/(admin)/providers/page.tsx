@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ProviderForm } from "@/components/admin/provider-form";
 import { AvailabilityEditor } from "@/components/admin/availability-editor";
+import { Pagination } from "@/components/admin/pagination";
 
 type Provider = {
   id: string;
@@ -21,6 +22,8 @@ export default function ProvidersPage() {
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [uploadingAvatarId, setUploadingAvatarId] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   async function handleAvatarUpload(providerId: string, file: File) {
     setUploadingAvatarId(providerId);
@@ -45,12 +48,17 @@ export default function ProvidersPage() {
 
   useEffect(() => { loadProviders(); }, []);
 
+  // Pagination
+  const totalItems = providers.length;
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const paginatedProviders = providers.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-[#1E293B]">提供者管理</h1>
-          <p className="text-sm text-slate-500 mt-1">管理服務提供者與排班時段</p>
+          <h1 className="text-xl font-semibold text-gray-900">提供者列表</h1>
+          <p className="text-sm text-gray-500 mt-1">管理服務提供者與排班時段</p>
         </div>
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
@@ -75,10 +83,10 @@ export default function ProvidersPage() {
       )}
 
       <div className="space-y-4">
-        {providers.map((p) => (
-          <div key={p.id} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-shadow duration-200">
+        {paginatedProviders.map((p) => (
+          <div key={p.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:shadow-md transition-shadow duration-200">
             <div className="p-5">
-              <div className="flex justify-between items-start">
+              <div className="flex justify-between items-center">
                 <div className="flex items-start gap-4">
                   {/* Avatar with upload */}
                   <label className="relative w-11 h-11 rounded-xl flex-shrink-0 cursor-pointer group">
@@ -105,8 +113,8 @@ export default function ProvidersPage() {
                     />
                   </label>
                   <div>
-                    <h3 className="font-semibold text-[#1E293B]">{p.name}</h3>
-                    <p className="text-sm text-slate-500 mt-0.5">{p.email}</p>
+                    <h3 className="font-semibold text-gray-900">{p.name}</h3>
+                    <p className="text-sm text-gray-500 mt-0.5">{p.email}</p>
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {p.providerServices.length > 0 ? (
                         p.providerServices.map((ps, i) => (
@@ -115,29 +123,55 @@ export default function ProvidersPage() {
                           </span>
                         ))
                       ) : (
-                        <span className="text-xs text-slate-400">未設定服務</span>
+                        <span className="text-xs text-gray-500">未設定服務</span>
                       )}
                     </div>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {/* LINE connection status */}
-                  {p.lineUserId && (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#06C755]/10 text-xs font-medium text-[#06C755]">
+                  {p.lineUserId ? (
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`確定要取消 ${p.name} 的 LINE 連結？`)) return;
+                        await fetch("/api/admin/providers", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: p.id, name: p.name, email: p.email, lineDisconnect: true }),
+                        });
+                        loadProviders();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#06C755]/10 text-xs font-medium text-[#06C755] hover:bg-red-50 hover:text-red-600 transition-colors group"
+                      title="點擊取消連結"
+                    >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
                       </svg>
-                      LINE
-                    </span>
-                  )}
+                      <span className="group-hover:hidden">LINE</span>
+                      <span className="hidden group-hover:inline">取消 LINE</span>
+                    </button>
+                  ) : null}
                   {/* Google Calendar status */}
                   {p.calendarId ? (
-                    <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-xs font-medium text-emerald-700">
+                    <button
+                      onClick={async () => {
+                        if (!confirm(`確定要取消 ${p.name} 的 Google 日曆連結？`)) return;
+                        await fetch("/api/admin/providers", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ id: p.id, name: p.name, email: p.email, googleDisconnect: true }),
+                        });
+                        loadProviders();
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-50 text-xs font-medium text-emerald-700 hover:bg-red-50 hover:text-red-600 transition-colors group"
+                      title="點擊取消連結"
+                    >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                       </svg>
-                      Google 已連結
-                    </span>
+                      <span className="group-hover:hidden">Google</span>
+                      <span className="hidden group-hover:inline">取消 Google</span>
+                    </button>
                   ) : (
                     <a
                       href={`/api/google/auth?providerId=${p.id}`}
@@ -165,7 +199,7 @@ export default function ProvidersPage() {
                       setEditing(p);
                       setShowForm(true);
                     }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:bg-slate-100 transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -177,7 +211,7 @@ export default function ProvidersPage() {
                     className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       expandedId === p.id
                         ? "bg-[#2563EB] text-white"
-                        : "text-slate-600 hover:bg-slate-100"
+                        : "text-gray-700 hover:bg-slate-100"
                     }`}
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -189,12 +223,22 @@ export default function ProvidersPage() {
               </div>
             </div>
             {expandedId === p.id && (
-              <div className="border-t border-slate-100 bg-slate-50/50 px-5 pb-5">
+              <div className="border-t border-gray-200 bg-gray-100/50 px-5 pb-5">
                 <AvailabilityEditor providerId={p.id} />
               </div>
             )}
           </div>
         ))}
+      </div>
+      <div className="bg-white rounded-xl border border-gray-200 mt-4">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
       </div>
     </div>
   );

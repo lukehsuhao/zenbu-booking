@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { ServiceForm } from "@/components/admin/service-form";
+import { Pagination } from "@/components/admin/pagination";
+import { TableSkeleton } from "@/components/admin/table-skeleton";
 
 type Service = {
   id: string;
   name: string;
   description: string | null;
   duration: number;
+  price: number;
   isActive: boolean;
   assignmentMode: string;
   requiresApproval: boolean;
@@ -35,8 +38,17 @@ const FIELD_TYPE_LABELS: Record<string, string> = {
 
 export default function ServicesPage() {
   const [services, setServices] = useState<Service[]>([]);
+  const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<Service | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
+  // Filters
+  const [searchQuery, setSearchQuery] = useState("");
+  const [filterProvider, setFilterProvider] = useState("");
+  const [filterApproval, setFilterApproval] = useState("");
+  const [filterPricing, setFilterPricing] = useState("");
 
   // Per-service form fields state
   const [expandedService, setExpandedService] = useState<string | null>(null);
@@ -54,8 +66,11 @@ export default function ServicesPage() {
   const [newFieldRequired, setNewFieldRequired] = useState(false);
 
   async function loadServices() {
-    const res = await fetch("/api/admin/services");
-    setServices(await res.json());
+    try {
+      const res = await fetch("/api/admin/services");
+      setServices(await res.json());
+    } catch { /* ignore */ }
+    setLoading(false);
   }
 
   const loadFieldsForService = useCallback(async (serviceId: string) => {
@@ -155,12 +170,35 @@ export default function ServicesPage() {
     loadFieldsForService(serviceId);
   }
 
+  // All unique providers for filter dropdown
+  const allProviders = Array.from(
+    new Map(
+      services.flatMap((s) => s.providerServices.map((ps) => [ps.provider.id, ps.provider.name]))
+    ).entries()
+  ).map(([id, name]) => ({ id, name }));
+
+  // Filtered services
+  const filteredServices = services.filter((s) => {
+    if (searchQuery && !s.name.toLowerCase().includes(searchQuery.toLowerCase())) return false;
+    if (filterProvider && !s.providerServices.some((ps) => ps.provider.id === filterProvider)) return false;
+    if (filterApproval === "yes" && !s.requiresApproval) return false;
+    if (filterApproval === "no" && s.requiresApproval) return false;
+    if (filterPricing === "free" && s.price > 0) return false;
+    if (filterPricing === "paid" && s.price <= 0) return false;
+    return true;
+  });
+
+  // Pagination
+  const totalItems = filteredServices.length;
+  const totalPages = Math.ceil(totalItems / pageSize);
+  const paginatedServices = filteredServices.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+
   return (
     <div>
       <div className="flex justify-between items-center mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-[#1E293B]">服務管理</h1>
-          <p className="text-sm text-slate-500 mt-1">管理可預約的服務項目</p>
+          <h1 className="text-xl font-semibold text-gray-900">服務管理</h1>
+          <p className="text-sm text-gray-500 mt-1">管理可預約的服務項目</p>
         </div>
         <button
           onClick={() => { setEditing(null); setShowForm(true); }}
@@ -173,6 +211,74 @@ export default function ServicesPage() {
         </button>
       </div>
 
+      {/* Filters */}
+      <div className="bg-white rounded-xl border border-gray-200 p-5 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">名稱搜尋</label>
+            <div className="relative">
+              <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 100-15 7.5 7.5 0 000 15z" />
+              </svg>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => { setSearchQuery(e.target.value); setCurrentPage(1); }}
+                placeholder="搜尋服務名稱..."
+                className="w-full h-10 pl-9 pr-3 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">服務人員</label>
+            <select
+              value={filterProvider}
+              onChange={(e) => { setFilterProvider(e.target.value); setCurrentPage(1); }}
+              className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+            >
+              <option value="">全部</option>
+              {allProviders.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">審核狀態</label>
+            <select
+              value={filterApproval}
+              onChange={(e) => { setFilterApproval(e.target.value); setCurrentPage(1); }}
+              className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+            >
+              <option value="">全部</option>
+              <option value="yes">需審核</option>
+              <option value="no">免審核</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1">定價類型</label>
+            <select
+              value={filterPricing}
+              onChange={(e) => { setFilterPricing(e.target.value); setCurrentPage(1); }}
+              className="w-full h-10 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all"
+            >
+              <option value="">全部</option>
+              <option value="free">免費</option>
+              <option value="paid">付費</option>
+            </select>
+          </div>
+        </div>
+        {(searchQuery || filterProvider || filterApproval || filterPricing) && (
+          <div className="mt-3 flex justify-end">
+            <button
+              onClick={() => { setSearchQuery(""); setFilterProvider(""); setFilterApproval(""); setFilterPricing(""); setCurrentPage(1); }}
+              className="text-xs text-gray-500 hover:text-gray-700 transition-colors"
+            >
+              清除篩選
+            </button>
+          </div>
+        )}
+      </div>
+
       {showForm && (
         <div className="mb-6">
           <ServiceForm
@@ -183,103 +289,143 @@ export default function ServicesPage() {
         </div>
       )}
 
-      <div className="space-y-3">
-        {services.map((s) => (
-          <div key={s.id} className="bg-white rounded-xl shadow-sm border border-slate-100 hover:shadow-md transition-shadow duration-200">
-            <div className="p-5">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${s.isActive ? "bg-blue-50" : "bg-slate-100"}`}>
-                    <svg className={`w-5 h-5 ${s.isActive ? "text-[#2563EB]" : "text-slate-400"}`} fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z" />
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 6h.008v.008H6V6z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 className="font-semibold text-[#1E293B]">{s.name}</h3>
-                    <div className="flex items-center gap-3 mt-1">
-                      <span className="inline-flex items-center gap-1 text-xs text-slate-500">
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        {s.duration} 分鐘
+      {loading ? (
+        <TableSkeleton rows={6} cols={8} />
+      ) : (
+      <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-100 border-b border-gray-200">
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">服務名稱</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時長</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">定價</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">指派方式</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">審核</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">服務人員</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">啟用</th>
+              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-40">操作</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-200">
+            {paginatedServices.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-5 py-12 text-center text-gray-500 text-sm">
+                  沒有符合條件的服務
+                </td>
+              </tr>
+            )}
+            {paginatedServices.map((s, idx) => (
+              <React.Fragment key={s.id}>
+                <tr className={`hover:bg-gray-100/50 transition-colors duration-100 ${idx % 2 === 1 ? "bg-gray-100/30" : ""}`}>
+                  <td className="px-5 py-3.5">
+                    <div className="font-medium text-gray-900">{s.name}</div>
+                    {s.description && <div className="text-xs text-gray-500 mt-0.5 line-clamp-1">{s.description}</div>}
+                  </td>
+                  <td className="px-5 py-3.5 text-gray-700 whitespace-nowrap">{s.duration} 分鐘</td>
+                  <td className="px-5 py-3.5">
+                    {s.price > 0 ? (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-amber-50 text-xs font-medium text-amber-700">
+                        ${s.price}
                       </span>
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
-                        s.assignmentMode === "round_robin"
-                          ? "bg-purple-50 text-purple-600"
-                          : "bg-slate-100 text-slate-500"
-                      }`}>
-                        {s.assignmentMode === "round_robin" ? "輪流指派" : "手動選擇"}
+                    ) : (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-emerald-50 text-xs font-medium text-emerald-600">
+                        免費
                       </span>
-                      {s.requiresApproval && (
-                        <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-amber-50 text-amber-600">
-                          需審核
-                        </span>
-                      )}
-                      {s.description && (
-                        <span className="text-xs text-slate-400">{s.description}</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium ${
+                      s.assignmentMode === "round_robin"
+                        ? "bg-purple-50 text-purple-600"
+                        : "bg-slate-100 text-gray-500"
+                    }`}>
+                      {s.assignmentMode === "round_robin" ? "輪流指派" : "手動選擇"}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    {s.requiresApproval ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-50 text-amber-600">需審核</span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-slate-100 text-gray-500">免審核</span>
+                    )}
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex flex-wrap gap-1 max-w-[200px]">
+                      {s.providerServices.length === 0 ? (
+                        <span className="text-xs text-slate-300">-</span>
+                      ) : (
+                        <>
+                          {s.providerServices.slice(0, 2).map((ps) => (
+                            <span key={ps.provider.id} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
+                              {ps.provider.name}
+                            </span>
+                          ))}
+                          {s.providerServices.length > 2 && (
+                            <span className="relative group inline-block">
+                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-gray-500 font-medium cursor-default">
+                                +{s.providerServices.length - 2}
+                              </span>
+                              <span className="invisible group-hover:visible absolute left-1/2 -translate-x-1/2 bottom-full mb-1.5 z-20 whitespace-nowrap bg-gray-700 text-white text-[11px] px-2 py-1 rounded-md shadow-lg">
+                                <span className="flex flex-col">
+                                  {s.providerServices.slice(2).map((ps) => (
+                                    <span key={ps.provider.id}>{ps.provider.name}</span>
+                                  ))}
+                                </span>
+                                <span className="absolute top-full left-1/2 -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-l-transparent border-r-transparent border-t-gray-700" />
+                              </span>
+                            </span>
+                          )}
+                        </>
                       )}
                     </div>
-                    {s.providerServices.length > 0 && (
-                      <div className="flex items-center gap-1.5 mt-1.5 flex-wrap">
-                        <span className="text-[10px] text-slate-400">人員：</span>
-                        {s.providerServices.map((ps) => (
-                          <span key={ps.provider.id} className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600 font-medium">
-                            {ps.provider.name}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {/* Toggle */}
-                  <button
-                    onClick={() => toggleActive(s)}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none ${
-                      s.isActive ? "bg-[#2563EB]" : "bg-slate-200"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
-                        s.isActive ? "translate-x-6" : "translate-x-1"
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <button
+                      onClick={() => toggleActive(s)}
+                      className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                        s.isActive ? "bg-[#2563EB]" : "bg-slate-200"
                       }`}
-                    />
-                  </button>
-                  <span className={`text-xs font-medium w-8 ${s.isActive ? "text-[#2563EB]" : "text-slate-400"}`}>
-                    {s.isActive ? "啟用" : "停用"}
-                  </span>
-                  <button
-                    onClick={() => toggleExpanded(s.id)}
-                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      expandedService === s.id
-                        ? "text-[#2563EB] bg-blue-50"
-                        : "text-slate-600 hover:bg-slate-100"
-                    }`}
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
-                    </svg>
-                    表單欄位
-                  </button>
-                  <button
-                    onClick={() => { setEditing(s); setShowForm(true); }}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 transition-colors"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
-                    </svg>
-                    編輯
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Collapsible Form Fields Section */}
-            {expandedService === s.id && (
-              <div className="border-t border-slate-100 px-5 py-4 bg-slate-50/50 rounded-b-xl">
+                      title={s.isActive ? "停用" : "啟用"}
+                    >
+                      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                        s.isActive ? "translate-x-5" : "translate-x-1"
+                      }`} />
+                    </button>
+                  </td>
+                  <td className="px-5 py-3.5">
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => toggleExpanded(s.id)}
+                        className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                          expandedService === s.id
+                            ? "text-[#2563EB] bg-blue-50"
+                            : "text-gray-700 hover:bg-slate-100"
+                        }`}
+                        title="表單欄位"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15a2.25 2.25 0 012.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25zM6.75 12h.008v.008H6.75V12zm0 3h.008v.008H6.75V15zm0 3h.008v.008H6.75V18z" />
+                        </svg>
+                        表單欄位
+                      </button>
+                      <button
+                        onClick={() => { setEditing(s); setShowForm(true); }}
+                        className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-700 hover:text-[#2563EB] hover:bg-blue-50 transition-colors"
+                        title="編輯服務"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
+                        </svg>
+                        編輯服務
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                {expandedService === s.id && (
+                  <tr>
+                    <td colSpan={8} className="px-5 py-4 bg-gray-100/50">
                 <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-sm font-bold text-[#1E293B]">表單欄位</h4>
+                  <h4 className="text-sm font-bold text-gray-900">表單欄位</h4>
                   <div className="flex gap-2">
                     <button
                       onClick={() => {
@@ -308,24 +454,24 @@ export default function ServicesPage() {
 
                 {/* Add field form */}
                 {addingFieldService === s.id && (
-                  <div className="bg-white rounded-xl border border-slate-200 p-4 mb-3">
-                    <h5 className="text-xs font-bold text-[#1E293B] mb-3">新增自訂欄位</h5>
+                  <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
+                    <h5 className="text-xs font-bold text-gray-900 mb-3">新增自訂欄位</h5>
                     <div className="grid grid-cols-2 gap-3 mb-3">
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">欄位名稱 <span className="text-red-500">*</span></label>
+                        <label className="block text-xs text-gray-500 mb-1">欄位名稱 <span className="text-red-500">*</span></label>
                         <input
                           value={newFieldLabel}
                           onChange={(e) => { setNewFieldLabel(e.target.value); setAddFieldError(""); }}
                           placeholder="例：公司名稱"
-                          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] ${addFieldError && !newFieldLabel.trim() ? "border-red-400" : "border-slate-200"}`}
+                          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] ${addFieldError && !newFieldLabel.trim() ? "border-red-400" : "border-gray-200"}`}
                         />
                       </div>
                       <div>
-                        <label className="block text-xs text-slate-500 mb-1">欄位類型</label>
+                        <label className="block text-xs text-gray-500 mb-1">欄位類型</label>
                         <select
                           value={newFieldType}
                           onChange={(e) => setNewFieldType(e.target.value)}
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                         >
                           <option value="text">單行文字</option>
                           <option value="textarea">多行文字</option>
@@ -336,12 +482,12 @@ export default function ServicesPage() {
                     </div>
                     {(newFieldType === "radio" || newFieldType === "checkbox") && (
                       <div className="mb-3">
-                        <label className="block text-xs text-slate-500 mb-1">選項（以逗號分隔）</label>
+                        <label className="block text-xs text-gray-500 mb-1">選項（以逗號分隔）</label>
                         <input
                           value={newFieldOptions}
                           onChange={(e) => setNewFieldOptions(e.target.value)}
                           placeholder="選項A, 選項B, 選項C"
-                          className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
                         />
                       </div>
                     )}
@@ -354,7 +500,7 @@ export default function ServicesPage() {
                         必填
                       </label>
                       <div className="flex-1" />
-                      <button onClick={() => { setAddingFieldService(null); setAddFieldError(""); }} className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700">取消</button>
+                      <button onClick={() => { setAddingFieldService(null); setAddFieldError(""); }} className="px-3 py-1.5 text-xs text-gray-500 hover:text-slate-700">取消</button>
                       <button
                         onClick={() => addFormField(s.id)}
                         disabled={addingField}
@@ -369,7 +515,7 @@ export default function ServicesPage() {
                 {/* Field list */}
                 <div className="space-y-2">
                   {(serviceFields[s.id] || []).map((field) => (
-                    <div key={field.id} className="bg-white rounded-xl border border-slate-200 p-4">
+                    <div key={field.id} className="bg-white rounded-xl border border-gray-200 p-4">
                       <div className="flex items-center gap-3">
                         {/* Enable toggle */}
                         <button
@@ -382,12 +528,12 @@ export default function ServicesPage() {
                         {/* Field info */}
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
-                            <span className={`text-sm font-medium ${field.enabled ? "text-[#1E293B]" : "text-slate-400"}`}>{field.label}</span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-500">{FIELD_TYPE_LABELS[field.type] || field.type}</span>
+                            <span className={`text-sm font-medium ${field.enabled ? "text-gray-900" : "text-gray-500"}`}>{field.label}</span>
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 text-gray-500">{FIELD_TYPE_LABELS[field.type] || field.type}</span>
                             {field.isBuiltin && <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-600">內建</span>}
                           </div>
                           {field.options && (
-                            <p className="text-xs text-slate-400 mt-0.5">選項：{field.options.join("、")}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">選項：{field.options.join("、")}</p>
                           )}
                           {!field.enabled && field.required && (
                             <p className="text-xs text-amber-500 mt-0.5">未啟用，即使勾選必填也不會顯示在表單中</p>
@@ -395,7 +541,7 @@ export default function ServicesPage() {
                         </div>
 
                         {/* Required toggle */}
-                        <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer flex-shrink-0">
+                        <label className="flex items-center gap-1.5 text-xs text-gray-500 cursor-pointer flex-shrink-0">
                           <input
                             type="checkbox"
                             checked={field.required}
@@ -409,7 +555,7 @@ export default function ServicesPage() {
                         {!field.isBuiltin && (
                           <button
                             onClick={() => deleteFormField(s.id, field.id)}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
+                            className="p-1.5 rounded-lg text-gray-500 hover:text-red-600 hover:bg-red-50 transition-colors flex-shrink-0"
                           >
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -420,16 +566,30 @@ export default function ServicesPage() {
                     </div>
                   ))}
                   {(serviceFields[s.id] || []).length === 0 && !loadedServices.includes(s.id) && (
-                    <p className="text-xs text-slate-400 text-center py-4">載入中...</p>
+                    <p className="text-xs text-gray-500 text-center py-4">載入中...</p>
                   )}
                   {(serviceFields[s.id] || []).length === 0 && loadedServices.includes(s.id) && (
-                    <p className="text-xs text-slate-400 text-center py-4">尚無表單欄位</p>
+                    <p className="text-xs text-gray-500 text-center py-4">尚無表單欄位</p>
                   )}
                 </div>
-              </div>
-            )}
-          </div>
-        ))}
+                    </td>
+                  </tr>
+                )}
+              </React.Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      )}
+      <div className="bg-white rounded-xl border border-gray-200 mt-3">
+        <Pagination
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+        />
       </div>
     </div>
   );

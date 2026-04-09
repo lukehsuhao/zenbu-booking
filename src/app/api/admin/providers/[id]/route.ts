@@ -56,6 +56,8 @@ export async function PUT(
         email: body.email,
         ...(user.role === "admin" && typeof body.isActive === "boolean" ? { isActive: body.isActive } : {}),
         ...(body.password ? { password: await bcrypt.hash(body.password, 10) } : {}),
+        ...(body.googleDisconnect ? { googleAccessToken: null, googleRefreshToken: null, googleTokenExpiry: null, calendarId: null } : {}),
+        ...(body.lineDisconnect ? { lineUserId: null, lineLinkCode: null } : {}),
       },
     });
     return NextResponse.json(provider);

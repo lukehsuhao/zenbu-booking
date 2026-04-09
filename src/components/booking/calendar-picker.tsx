@@ -5,8 +5,8 @@ import { DayPicker } from "react-day-picker";
 import { zhTW } from "date-fns/locale";
 import "react-day-picker/style.css";
 
-export function CalendarPicker({ providerId, serviceId, onSelect, maxDays = 0 }: {
-  providerId: string; serviceId: string; onSelect: (date: string) => void; maxDays?: number;
+export function CalendarPicker({ providerId, serviceId, onSelect, maxDays = 0, minAdvanceDays = 0 }: {
+  providerId: string; serviceId: string; onSelect: (date: string) => void; maxDays?: number; minAdvanceDays?: number;
 }) {
   const [month, setMonth] = useState(new Date());
   const [availableDates, setAvailableDates] = useState<string[]>([]);
@@ -26,9 +26,11 @@ export function CalendarPicker({ providerId, serviceId, onSelect, maxDays = 0 }:
   today.setHours(0, 0, 0, 0);
 
   const maxDate = maxDays > 0 ? new Date(today.getTime() + maxDays * 86400000) : null;
+  const minDate = minAdvanceDays > 0 ? new Date(today.getTime() + minAdvanceDays * 86400000) : null;
 
   function isDisabled(date: Date) {
     if (date < today) return true;
+    if (minDate && date < minDate) return true;
     if (maxDate && date > maxDate) return true;
     const dateStr = date.toLocaleDateString("en-CA");
     return !availableSet.has(dateStr);

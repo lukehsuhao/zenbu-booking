@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
+import { TableSkeleton, StatCardSkeleton } from "@/components/admin/table-skeleton";
 
 type Booking = {
   id: string;
@@ -85,8 +86,24 @@ export default function DashboardPage() {
 
   if (!mounted || sessionStatus === "loading") {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-8 h-8 border-3 border-slate-200 border-t-[#2563EB] rounded-full animate-spin" />
+      <div>
+        <div className="mb-8">
+          <div className="h-6 bg-gray-200 rounded animate-pulse w-32 mb-2" />
+          <div className="h-4 bg-gray-200 rounded animate-pulse w-48" />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <StatCardSkeleton key={i} />
+          ))}
+        </div>
+        <div className="mb-8">
+          <div className="h-5 bg-gray-200 rounded animate-pulse w-24 mb-4" />
+          <TableSkeleton rows={4} cols={5} />
+        </div>
+        <div>
+          <div className="h-5 bg-gray-200 rounded animate-pulse w-32 mb-4" />
+          <TableSkeleton rows={4} cols={5} />
+        </div>
       </div>
     );
   }
@@ -94,19 +111,19 @@ export default function DashboardPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1 className="text-2xl font-bold text-[#1E293B]">儀表板</h1>
-        <p className="text-sm text-slate-500 mt-1">
+        <h1 className="text-xl font-semibold text-gray-900">儀表板</h1>
+        <p className="text-sm text-gray-500 mt-1">
           {isProvider ? "我的預約總覽與今日排程" : "預約總覽與今日排程"}
         </p>
       </div>
 
       {/* Stat cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-5 mb-8">
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow duration-200">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-500">{isProvider ? "我的今日預約" : "今日預約"}</p>
-              <p className="text-3xl font-bold text-[#1E293B] mt-2">{stats.today}</p>
+              <p className="text-sm font-medium text-gray-500">{isProvider ? "我的今日預約" : "今日預約"}</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.today}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-blue-50 flex items-center justify-center">
               <svg className="w-6 h-6 text-[#2563EB]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -115,11 +132,11 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow duration-200">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-500">{isProvider ? "我的本週預約" : "本週預約"}</p>
-              <p className="text-3xl font-bold text-[#1E293B] mt-2">{stats.week}</p>
+              <p className="text-sm font-medium text-gray-500">{isProvider ? "我的本週預約" : "本週預約"}</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.week}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center">
               <svg className="w-6 h-6 text-[#06B6D4]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -128,11 +145,11 @@ export default function DashboardPage() {
             </div>
           </div>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 hover:shadow-md transition-shadow duration-200">
+        <div className="bg-white rounded-xl border border-gray-200 p-6 hover:shadow-md transition-shadow duration-200">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-sm font-medium text-slate-500">{isProvider ? "我的本月預約" : "本月預約"}</p>
-              <p className="text-3xl font-bold text-[#1E293B] mt-2">{stats.month}</p>
+              <p className="text-sm font-medium text-gray-500">{isProvider ? "我的本月預約" : "本月預約"}</p>
+              <p className="text-3xl font-bold text-gray-900 mt-2">{stats.month}</p>
             </div>
             <div className="w-12 h-12 rounded-xl bg-emerald-50 flex items-center justify-center">
               <svg className="w-6 h-6 text-emerald-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
@@ -149,20 +166,20 @@ export default function DashboardPage() {
           <svg className="w-5 h-5 text-[#2563EB]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          <h2 className="text-lg font-semibold text-[#1E293B]">{isProvider ? "我的今日預約" : "今日預約"}</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{isProvider ? "我的今日預約" : "今日預約"}</h2>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">時間</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">顧客</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">服務</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">提供者</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">Meet</th>
+              <tr className="bg-gray-100 border-b border-gray-200">
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時間</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">顧客</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">服務</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">提供者</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Meet</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-gray-200">
               {todayBookings.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center">
@@ -170,28 +187,28 @@ export default function DashboardPage() {
                       <svg className="w-10 h-10 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M6.75 3v2.25M17.25 3v2.25M3 18.75V7.5a2.25 2.25 0 012.25-2.25h13.5A2.25 2.25 0 0121 7.5v11.25m-18 0A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75m-18 0v-7.5A2.25 2.25 0 015.25 9h13.5A2.25 2.25 0 0121 11.25v7.5m-9-6h.008v.008H12v-.008zM12 15h.008v.008H12V15zm0 2.25h.008v.008H12v-.008zM9.75 15h.008v.008H9.75V15zm0 2.25h.008v.008H9.75v-.008zM7.5 15h.008v.008H7.5V15zm0 2.25h.008v.008H7.5v-.008zm6.75-4.5h.008v.008h-.008v-.008zm0 2.25h.008v.008h-.008V15zm0 2.25h.008v.008h-.008v-.008zm2.25-4.5h.008v.008H16.5v-.008zm0 2.25h.008v.008H16.5V15z" />
                       </svg>
-                      <p className="text-slate-400 text-sm">今日暫無預約</p>
+                      <p className="text-gray-500 text-sm">今日暫無預約</p>
                     </div>
                   </td>
                 </tr>
               )}
               {todayBookings.map((b) => (
-                <tr key={b.id} className="hover:bg-slate-50/50 transition-colors duration-100">
+                <tr key={b.id} className="hover:bg-gray-100/50 transition-colors duration-100">
                   <td className="px-5 py-3.5">
-                    <span className="inline-flex items-center gap-1.5 font-medium text-[#1E293B]">
+                    <span className="inline-flex items-center gap-1.5 font-medium text-gray-900">
                       {b.startTime}~{b.endTime}
                     </span>
                   </td>
                   <td className="px-5 py-3.5">
-                    <div className="font-medium text-[#1E293B]">{b.customerName}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{b.customerPhone}</div>
+                    <div className="font-medium text-gray-900">{b.customerName}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{b.customerPhone}</div>
                   </td>
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-blue-50 text-xs font-medium text-[#2563EB]">
                       {b.service.name}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-600">{b.provider.name}</td>
+                  <td className="px-5 py-3.5 text-gray-700">{b.provider.name}</td>
                   <td className="px-5 py-3.5">
                     {b.googleMeetUrl ? (
                       <a href={b.googleMeetUrl} target="_blank" rel="noopener noreferrer"
@@ -218,41 +235,41 @@ export default function DashboardPage() {
           <svg className="w-5 h-5 text-[#06B6D4]" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 12h16.5m-16.5 3.75h16.5M3.75 19.5h16.5M5.625 4.5h12.75a1.875 1.875 0 010 3.75H5.625a1.875 1.875 0 010-3.75z" />
           </svg>
-          <h2 className="text-lg font-semibold text-[#1E293B]">{isProvider ? "我的未來 7 天預約" : "未來 7 天預約"}</h2>
+          <h2 className="text-lg font-semibold text-gray-900">{isProvider ? "我的未來 7 天預約" : "未來 7 天預約"}</h2>
         </div>
-        <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="bg-slate-50 border-b border-slate-100">
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">日期</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">時間</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">顧客</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">服務</th>
-                <th className="px-5 py-3.5 text-left text-xs font-semibold text-slate-500 uppercase tracking-wider">提供者</th>
+              <tr className="bg-gray-100 border-b border-gray-200">
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">日期</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時間</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">顧客</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">服務</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">提供者</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className="divide-y divide-gray-200">
               {upcomingBookings.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-5 py-12 text-center">
-                    <p className="text-slate-400 text-sm">未來 7 天暫無預約</p>
+                    <p className="text-gray-500 text-sm">未來 7 天暫無預約</p>
                   </td>
                 </tr>
               )}
               {upcomingBookings.map((b) => (
-                <tr key={b.id} className="hover:bg-slate-50/50 transition-colors duration-100">
-                  <td className="px-5 py-3.5 font-medium text-[#1E293B]">{new Date(b.date).toLocaleDateString("zh-TW")}</td>
-                  <td className="px-5 py-3.5 text-slate-600">{b.startTime}~{b.endTime}</td>
+                <tr key={b.id} className="hover:bg-gray-100/50 transition-colors duration-100">
+                  <td className="px-5 py-3.5 font-medium text-gray-900">{new Date(b.date).toLocaleDateString("zh-TW")}</td>
+                  <td className="px-5 py-3.5 text-gray-700">{b.startTime}~{b.endTime}</td>
                   <td className="px-5 py-3.5">
-                    <div className="font-medium text-[#1E293B]">{b.customerName}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{b.customerPhone}</div>
+                    <div className="font-medium text-gray-900">{b.customerName}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{b.customerPhone}</div>
                   </td>
                   <td className="px-5 py-3.5">
                     <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-cyan-50 text-xs font-medium text-[#06B6D4]">
                       {b.service.name}
                     </span>
                   </td>
-                  <td className="px-5 py-3.5 text-slate-600">{b.provider.name}</td>
+                  <td className="px-5 py-3.5 text-gray-700">{b.provider.name}</td>
                 </tr>
               ))}
             </tbody>

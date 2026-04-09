@@ -4,12 +4,32 @@ import { prisma } from "@/lib/prisma";
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/google-calendar";
 import { pushMessage } from "@/lib/line-messaging";
 
+function replaceVars(template: string, vars: Record<string, string>): string {
+  let result = template;
+  for (const [key, value] of Object.entries(vars)) {
+    result = result.replaceAll(`{{${key}}}`, value);
+  }
+  return result;
+}
+
 export async function DELETE(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await auth();
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  // Optional custom cancel message from request body
+  let customCustomerMessage: string | null = null;
+  try {
+    const body = await req.json();
+    if (typeof body?.customerMessage === "string" && body.customerMessage.trim()) {
+      customCustomerMessage = body.customerMessage.trim();
+    }
+  } catch { /* no body or invalid JSON */ }
+
   const { id } = await params;
-  const booking = await prisma.booking.findUnique({ where: { id } });
+  const booking = await prisma.booking.findUnique({
+    where: { id },
+    include: { service: true },
+  });
   if (!booking) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (booking.googleEventId) {
@@ -18,6 +38,75 @@ export async function DELETE(req: NextRequest, { params }: { params: Promise<{ i
 
   await prisma.booking.update({ where: { id }, data: { status: "cancelled" } });
   await prisma.reminder.deleteMany({ where: { bookingId: id, sentAt: null } });
+
+  // Refund payment
+  if (booking.paidWith === "ticket" && booking.ticketId) {
+    await prisma.customerTicket.update({
+      where: { id: booking.ticketId },
+      data: { used: { decrement: 1 } },
+    });
+  }
+  if (booking.paidWith === "points" && booking.pointsUsed > 0) {
+    const customer = await prisma.customer.findUnique({ where: { lineUserId: booking.lineUserId } });
+    if (customer) {
+      await prisma.$transaction([
+        prisma.customer.update({ where: { id: customer.id }, data: { points: { increment: booking.pointsUsed } } }),
+        prisma.pointTransaction.create({
+          data: { customerId: customer.id, amount: booking.pointsUsed, reason: "refund", bookingId: booking.id, notes: "預約取消退點" },
+        }),
+      ]);
+    }
+  }
+
+  // Send cancel notifications
+  const provider = await prisma.provider.findUnique({ where: { id: booking.providerId } });
+  const dateStr = booking.date.toISOString().slice(0, 10);
+  const cancelVars: Record<string, string> = {
+    "姓名": booking.customerName,
+    "服務名稱": booking.service.name,
+    "提供者": provider?.name || "",
+    "日期": dateStr,
+    "時間": `${booking.startTime} - ${booking.endTime}`,
+    "電話": booking.customerPhone || "",
+    "Email": "",
+  };
+
+  // Notify customer (use custom message if provided, otherwise use template)
+  try {
+    const customerMsg = customCustomerMessage
+      || booking.service.cancelCustomerMsg
+      || "{{姓名}} 您好，您的 {{服務名稱}} 預約已取消。\n原預約時間：{{日期}} {{時間}}\n如有疑問請聯繫我們。";
+    // If custom message is provided, use as-is; otherwise apply template variables
+    const finalMsg = customCustomerMessage ? customerMsg : replaceVars(customerMsg, cancelVars);
+    await pushMessage(booking.lineUserId, finalMsg);
+  } catch (err) {
+    console.error("Failed to send cancel notification to customer:", err);
+  }
+
+  // Notify provider
+  try {
+    if (provider?.lineUserId) {
+      const providerMsg = booking.service.cancelProviderMsg || "【預約取消】{{姓名}} 的 {{服務名稱}} 預約已取消\n原預約時間：{{日期}} {{時間}}";
+      await pushMessage(provider.lineUserId, replaceVars(providerMsg, cancelVars));
+    }
+  } catch (err) {
+    console.error("Failed to send cancel notification to provider:", err);
+  }
+
+  // Notify admins
+  try {
+    if (booking.service.notifyAdminOnBooking) {
+      const admins = await prisma.teamMember.findMany({ where: { lineUserId: { not: null } } });
+      const adminMsg = booking.service.cancelAdminMsg || "【預約取消】{{姓名}} 的 {{服務名稱}} 預約已取消\n原預約時間：{{日期}} {{時間}}\n提供者：{{提供者}}";
+      for (const admin of admins) {
+        if (admin.lineUserId && admin.lineUserId !== provider?.lineUserId) {
+          await pushMessage(admin.lineUserId, replaceVars(adminMsg, cancelVars));
+        }
+      }
+    }
+  } catch (err) {
+    console.error("Failed to send cancel notification to admins:", err);
+  }
 
   return NextResponse.json({ success: true });
 }
@@ -127,6 +216,23 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     }
   }
 
+  // Reward on complete
+  if (body.status === "completed" && booking.status !== "completed") {
+    const settings = await prisma.siteSettings.findUnique({ where: { id: "default" } });
+    const rewardPoints = settings?.rewardPointsOnComplete || 0;
+    if (rewardPoints > 0) {
+      const customer = await prisma.customer.findUnique({ where: { lineUserId: booking.lineUserId } });
+      if (customer) {
+        await prisma.$transaction([
+          prisma.customer.update({ where: { id: customer.id }, data: { points: { increment: rewardPoints } } }),
+          prisma.pointTransaction.create({
+            data: { customerId: customer.id, amount: rewardPoints, reason: "reward", bookingId: booking.id, notes: "預約完成回饋" },
+          }),
+        ]);
+      }
+    }
+  }
+
   const updated = await prisma.booking.update({ where: { id }, data: updateData });
 
   // Send LINE notification about the change
@@ -151,6 +257,43 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { id } = await params;
   const body = await req.json();
+
+  // Handle notify_reschedule action
+  if (body.action === "notify_reschedule") {
+    const booking = await prisma.booking.findUnique({
+      where: { id },
+      include: { service: true, provider: true },
+    });
+    if (!booking) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+    const dateStr = booking.date.toISOString().slice(0, 10);
+    const vars = {
+      "姓名": booking.customerName,
+      "服務名稱": booking.service.name,
+      "提供者": booking.provider.name,
+      "日期": dateStr,
+      "時間": `${booking.startTime} - ${booking.endTime}`,
+      "電話": booking.customerPhone,
+    };
+
+    // Notify customer
+    if (body.notifyCustomer) {
+      try {
+        const template = booking.service.rescheduleCustomerMsg || `{{姓名}} 您好，您的預約已更改。\n服務：{{服務名稱}}\n新日期：{{日期}}\n新時間：{{時間}}`;
+        await pushMessage(booking.lineUserId, replaceVars(template, vars));
+      } catch (err) { console.error("Failed to notify customer:", err); }
+    }
+
+    // Notify provider
+    if (body.notifyProvider && booking.provider.lineUserId) {
+      try {
+        const template = booking.service.rescheduleProviderMsg || `【時段更改】{{姓名}} 的 {{服務名稱}} 預約已更改\n新日期：{{日期}}\n新時間：{{時間}}`;
+        await pushMessage(booking.provider.lineUserId, replaceVars(template, vars));
+      } catch (err) { console.error("Failed to notify provider:", err); }
+    }
+
+    return NextResponse.json({ success: true });
+  }
 
   if (body.action !== "approve") {
     return NextResponse.json({ error: "Invalid action" }, { status: 400 });

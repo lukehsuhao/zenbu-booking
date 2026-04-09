@@ -24,6 +24,13 @@ export async function GET() {
     customAccent: settings.customAccent,
     bookingWindowDays: settings.bookingWindowDays,
     showProviderAvatar: settings.showProviderAvatar,
+    showStoreFront: settings.showStoreFront,
+    storeName: settings.storeName,
+    storeDescription: settings.storeDescription,
+    storeImageUrl: settings.storeImageUrl,
+    storeMediaType: settings.storeMediaType,
+    storeYoutubeUrl: settings.storeYoutubeUrl,
+    rewardPointsOnComplete: settings.rewardPointsOnComplete,
   });
 }
 
@@ -54,6 +61,27 @@ export async function PUT(req: NextRequest) {
   if (typeof body.showProviderAvatar === "boolean") {
     data.showProviderAvatar = body.showProviderAvatar;
   }
+  if (typeof body.showStoreFront === "boolean") {
+    data.showStoreFront = body.showStoreFront;
+  }
+  if (typeof body.storeName === "string") {
+    data.storeName = body.storeName;
+  }
+  if (typeof body.storeDescription === "string") {
+    data.storeDescription = body.storeDescription;
+  }
+  if (typeof body.storeImageUrl === "string" || body.storeImageUrl === null) {
+    data.storeImageUrl = body.storeImageUrl;
+  }
+  if (typeof body.storeMediaType === "string") {
+    data.storeMediaType = body.storeMediaType;
+  }
+  if (typeof body.storeYoutubeUrl === "string" || body.storeYoutubeUrl === null) {
+    data.storeYoutubeUrl = body.storeYoutubeUrl;
+  }
+  if (typeof body.rewardPointsOnComplete === "number") {
+    data.rewardPointsOnComplete = body.rewardPointsOnComplete;
+  }
 
   const settings = await prisma.siteSettings.upsert({
     where: { id: "default" },
@@ -68,5 +96,12 @@ export async function PUT(req: NextRequest) {
     customAccent: settings.customAccent,
     bookingWindowDays: settings.bookingWindowDays,
     showProviderAvatar: settings.showProviderAvatar,
+    showStoreFront: settings.showStoreFront,
+    storeName: settings.storeName,
+    storeDescription: settings.storeDescription,
+    storeImageUrl: settings.storeImageUrl,
+    storeMediaType: settings.storeMediaType,
+    storeYoutubeUrl: settings.storeYoutubeUrl,
+    rewardPointsOnComplete: settings.rewardPointsOnComplete,
   });
 }

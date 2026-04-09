@@ -22,5 +22,12 @@ export async function GET() {
     colors,
     bookingWindowDays: settings.bookingWindowDays,
     showProviderAvatar: settings.showProviderAvatar,
+    showStoreFront: settings.showStoreFront,
+    storeName: settings.storeName,
+    storeDescription: settings.storeDescription,
+    storeImageUrl: settings.storeImageUrl,
+    storeMediaType: settings.storeMediaType,
+    storeYoutubeUrl: settings.storeYoutubeUrl,
+    rewardPointsOnComplete: settings.rewardPointsOnComplete,
   });
 }

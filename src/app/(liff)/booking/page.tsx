@@ -8,8 +8,9 @@ import { CalendarPicker } from "@/components/booking/calendar-picker";
 import { TimeSlotPicker } from "@/components/booking/time-slot-picker";
 import { DynamicForm } from "@/components/booking/dynamic-form";
 import { BookingConfirm } from "@/components/booking/booking-confirm";
+import { PaymentSelect } from "@/components/booking/payment-select";
 
-type Service = { id: string; name: string; description: string | null; duration: number; assignmentMode?: string; requiresApproval?: boolean };
+type Service = { id: string; name: string; description: string | null; duration: number; bookingWindowDays?: number; minAdvanceDays?: number; assignmentMode?: string; showProviderSelection?: boolean; hasDisclaimer?: boolean; disclaimerText?: string | null; requiresApproval?: boolean; price?: number; acceptTicket?: boolean; acceptPoints?: boolean; pointsPerUnit?: number };
 type Provider = { id: string; name: string; avatarUrl?: string | null };
 type TimeSlot = { startTime: string; endTime: string };
 type FormFieldDef = { key: string; label: string; type: "text" | "textarea" | "radio" | "checkbox"; options: string[] | null; required: boolean };
@@ -19,7 +20,8 @@ const ALL_STEPS = [
   { key: 2, label: "人員" },
   { key: 3, label: "時段" },
   { key: 4, label: "資料" },
-  { key: 5, label: "確認" },
+  { key: 5, label: "付款" },
+  { key: 6, label: "確認" },
 ];
 
 export default function BookingPage() {
@@ -27,9 +29,12 @@ export default function BookingPage() {
   const [step, setStep] = useState(0);
   const [lineUserId, setLineUserId] = useState("");
   const [lineDisplayName, setLineDisplayName] = useState("");
+  const [linePictureUrl, setLinePictureUrl] = useState("");
+  const [authError, setAuthError] = useState(false);
 
   const [services, setServices] = useState<Service[]>([]);
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [promotions, setPromotions] = useState<{ id: string; name: string; serviceIds: string[] | null; rewardType: string; rewardPoints: number; rewardTickets: number }[]>([]);
 
   const [selectedService, setSelectedService] = useState<Service | null>(null);
   const [selectedProvider, setSelectedProvider] = useState<Provider | null>(null);
@@ -39,9 +44,13 @@ export default function BookingPage() {
   const [formFields, setFormFields] = useState<FormFieldDef[]>([]);
   const [bookingWindowDays, setBookingWindowDays] = useState(0);
   const [showProviderAvatar, setShowProviderAvatar] = useState(true);
+  const [paymentInfo, setPaymentInfo] = useState<{ method: string; ticketId?: string; pointsUsed?: number } | null>(null);
 
-  const [confirmationFields, setConfirmationFields] = useState<string[] | undefined>(undefined);
+  // confirmationFields removed — confirm page now auto-shows based on filled data
   const [skippedSteps, setSkippedSteps] = useState<Set<number>>(new Set());
+  const [showDisclaimer, setShowDisclaimer] = useState(false);
+  const [disclaimerAgreed, setDisclaimerAgreed] = useState(false);
+  const [pendingServiceAction, setPendingServiceAction] = useState<(() => void) | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [bookingResult, setBookingResult] = useState<{
@@ -51,6 +60,7 @@ export default function BookingPage() {
     endTime: string;
     service: string;
     provider: string;
+    rewards?: { name: string; points: number; tickets: number }[];
   } | null>(null);
 
   // Navigate to step and push browser history
@@ -58,9 +68,9 @@ export default function BookingPage() {
     const skipped = newSkipped || skippedSteps;
     // If this step is skipped, find next non-skipped
     let target = newStep;
-    while (target <= 5 && skipped.has(target)) target++;
+    while (target <= 6 && skipped.has(target)) target++;
     setStep(target);
-    if (target > 0 && target <= 5) {
+    if (target > 0 && target <= 6) {
       window.history.pushState({ step: target }, "", `#step-${target}`);
     }
   }, [skippedSteps]);
@@ -85,11 +95,19 @@ export default function BookingPage() {
       try {
         await initLiff();
         const profile = await liff.getProfile();
+        if (!profile.userId) throw new Error("No LINE userId");
         setLineUserId(profile.userId);
         setLineDisplayName(profile.displayName);
+        setLinePictureUrl(profile.pictureUrl || "");
       } catch {
-        setLineUserId("dev-user");
-        setLineDisplayName("開發用戶");
+        // 開發環境允許跳過 LINE 登入
+        if (typeof window !== "undefined" && window.location.hostname === "localhost") {
+          setLineUserId("dev-user");
+          setLineDisplayName("開發用戶");
+        } else {
+          setAuthError(true);
+          return;
+        }
       }
 
       // Fetch theme settings
@@ -97,7 +115,7 @@ export default function BookingPage() {
         const themeRes = await fetch("/api/theme");
         if (themeRes.ok) {
           const themeData = await themeRes.json();
-          setConfirmationFields(themeData.confirmationFields);
+          // confirmationFields no longer used
           if (themeData.bookingWindowDays) setBookingWindowDays(themeData.bookingWindowDays);
           if (typeof themeData.showProviderAvatar === "boolean") setShowProviderAvatar(themeData.showProviderAvatar);
           if (themeData.colors) {
@@ -109,13 +127,32 @@ export default function BookingPage() {
 
       const newSkipped = new Set<number>();
 
-      const servicesRes = await fetch("/api/services");
-      const servicesData = await servicesRes.json();
+      let servicesData: Service[] = [];
+      try {
+        const servicesRes = await fetch("/api/services");
+        if (servicesRes.ok) servicesData = await servicesRes.json();
+      } catch { /* use empty list, fall through to goToStep(1) */ }
       setServices(servicesData);
+
+      // Fetch active promotions
+      try {
+        const promoRes = await fetch("/api/promotions");
+        if (promoRes.ok) {
+          const promoData = await promoRes.json();
+          setPromotions(promoData);
+        }
+      } catch { /* ignore */ }
 
       if (servicesData.length === 1) {
         newSkipped.add(1);
         setSelectedService(servicesData[0]);
+        if (servicesData[0].bookingWindowDays != null) {
+          setBookingWindowDays(servicesData[0].bookingWindowDays);
+        }
+        // Skip payment step if free
+        if (!servicesData[0].price || servicesData[0].price === 0) {
+          newSkipped.add(5);
+        }
         // Fetch form fields for this service
         await loadFormFieldsForService(servicesData[0].id, newSkipped);
         setSkippedSteps(new Set(newSkipped));
@@ -145,19 +182,20 @@ export default function BookingPage() {
   }
 
   async function loadProvidersInit(serviceId: string, currentSkipped: Set<number>, service?: Service) {
-    const res = await fetch(`/api/providers?serviceId=${serviceId}`);
-    const data = await res.json();
+    let data: Provider[] = [];
+    try {
+      const res = await fetch(`/api/providers?serviceId=${serviceId}`);
+      if (res.ok) data = await res.json();
+    } catch { /* fall through */ }
     setProviders(data);
 
     const isRoundRobin = service?.assignmentMode === "round_robin";
+    const hideProviders = !service?.showProviderSelection;
 
-    if (isRoundRobin || data.length === 1) {
+    if (isRoundRobin || hideProviders || data.length === 1) {
       currentSkipped.add(2);
       setSkippedSteps(new Set(currentSkipped));
-      if (!isRoundRobin) {
-        setSelectedProvider(data[0]);
-      } else if (data.length > 0) {
-        // Set a placeholder provider for round robin; actual assignment happens server-side
+      if (data.length > 0) {
         setSelectedProvider(data[0]);
       }
       goToStep(3, currentSkipped);
@@ -168,17 +206,19 @@ export default function BookingPage() {
   }
 
   async function loadProvidersForService(serviceId: string, service?: Service) {
-    const res = await fetch(`/api/providers?serviceId=${serviceId}`);
-    const data = await res.json();
+    let data: Provider[] = [];
+    try {
+      const res = await fetch(`/api/providers?serviceId=${serviceId}`);
+      if (res.ok) data = await res.json();
+    } catch { /* fall through */ }
     setProviders(data);
 
     const isRoundRobin = service?.assignmentMode === "round_robin";
+    const hideProviders = !service?.showProviderSelection;
 
-    if (isRoundRobin || data.length === 1) {
+    if (isRoundRobin || hideProviders || data.length === 1) {
       setSkippedSteps((prev) => new Set([...prev, 2]));
-      if (!isRoundRobin) {
-        setSelectedProvider(data[0]);
-      } else if (data.length > 0) {
+      if (data.length > 0) {
         setSelectedProvider(data[0]);
       }
       goToStep(3);
@@ -189,11 +229,31 @@ export default function BookingPage() {
 
   async function handleServiceSelect(service: Service) {
     setSelectedService(service);
-    // Load form fields for selected service
-    const newSkipped = new Set(skippedSteps);
-    await loadFormFieldsForService(service.id, newSkipped);
-    setSkippedSteps(newSkipped);
-    loadProvidersForService(service.id, service);
+    if (service.bookingWindowDays != null) {
+      setBookingWindowDays(service.bookingWindowDays);
+    }
+
+    const proceed = async () => {
+      const newSkipped = new Set(skippedSteps);
+      // Skip payment step if free
+      if (!service.price || service.price === 0) {
+        newSkipped.add(5);
+      } else {
+        newSkipped.delete(5);
+      }
+      await loadFormFieldsForService(service.id, newSkipped);
+      setSkippedSteps(newSkipped);
+      loadProvidersForService(service.id, service);
+    };
+
+    // Show disclaimer if service has one
+    if (service.hasDisclaimer && service.disclaimerText) {
+      setDisclaimerAgreed(false);
+      setPendingServiceAction(() => proceed);
+      setShowDisclaimer(true);
+    } else {
+      await proceed();
+    }
   }
 
   function handleProviderSelect(provider: Provider | null) {
@@ -212,7 +272,12 @@ export default function BookingPage() {
 
   function handleFormSubmit(data: Record<string, string>) {
     setFormData(data);
-    goToStep(5);
+    goToStep(5); // payment step (auto-skipped to 6/confirm if free)
+  }
+
+  function handlePaymentSelect(payment: { method: string; ticketId?: string; pointsUsed?: number }) {
+    setPaymentInfo(payment);
+    goToStep(6); // confirm step
   }
 
   function handleBack() {
@@ -224,6 +289,11 @@ export default function BookingPage() {
 
   async function handleConfirm() {
     if (!selectedService || !selectedProvider || !selectedSlot) return;
+    // 生產環境下必須有真實的 LINE userId
+    if (!lineUserId || (lineUserId === "dev-user" && typeof window !== "undefined" && window.location.hostname !== "localhost")) {
+      setAuthError(true);
+      return;
+    }
     setSubmitting(true);
 
     const isRoundRobin = selectedService.assignmentMode === "round_robin";
@@ -235,6 +305,8 @@ export default function BookingPage() {
         providerId: isRoundRobin ? undefined : selectedProvider.id,
         serviceId: selectedService.id,
         lineUserId,
+        linePictureUrl,
+        lineDisplayName,
         customerName: formData.name || "",
         customerPhone: formData.phone || "",
         customerEmail: formData.email || "",
@@ -242,19 +314,80 @@ export default function BookingPage() {
         startTime: selectedSlot.startTime,
         notes: formData.notes || "",
         customFields: formData,
+        paidWith: paymentInfo?.method || null,
+        ticketId: paymentInfo?.ticketId || null,
+        pointsUsed: paymentInfo?.pointsUsed || 0,
       }),
     });
 
     if (res.ok) {
       const result = await res.json();
+      // If the API includes rewards, use them; otherwise derive from promotions client-side
+      if (!result.rewards && selectedService) {
+        const matchingRewards = promotions
+          .filter((p) => p.serviceIds === null || p.serviceIds.includes(selectedService.id))
+          .map((p) => ({ name: p.name, points: p.rewardPoints, tickets: p.rewardTickets }));
+        if (matchingRewards.length > 0) {
+          result.rewards = matchingRewards;
+        }
+      }
       setBookingResult(result);
-      setStep(6);
-      window.history.replaceState({ step: 6 }, "", "#success");
+      setStep(7);
+      window.history.replaceState({ step: 7 }, "", "#success");
+      window.scrollTo(0, 0);
     } else {
       const err = await res.json();
       alert(err.error || "預約失敗，請重試");
     }
     setSubmitting(false);
+  }
+
+  // 認證失敗畫面
+  if (authError) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen gap-4 px-6">
+        <div
+          className="w-16 h-16 rounded-full flex items-center justify-center"
+          style={{ background: "linear-gradient(135deg, #FEE2E2, #FECACA)" }}
+        >
+          <svg className="w-8 h-8" style={{ color: "#DC2626" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>
+        <div className="text-center">
+          <h2 className="text-lg font-bold mb-2" style={{ color: "var(--color-text)" }}>
+            需要先登入 LINE
+          </h2>
+          <p className="text-sm mb-6" style={{ color: "var(--color-text-muted)" }}>
+            請先登入您的 LINE 帳號才能進行預約。<br />
+            建議您直接從 LINE App 開啟本頁面，以獲得最佳體驗。
+          </p>
+        </div>
+        <button
+          onClick={() => {
+            try {
+              liff.login({ redirectUri: window.location.href });
+            } catch {
+              window.location.reload();
+            }
+          }}
+          className="w-full max-w-xs py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 active:scale-[0.98]"
+          style={{
+            background: "#06C755",
+            boxShadow: "0 4px 12px rgba(6,199,85,0.25)",
+          }}
+        >
+          使用 LINE 登入
+        </button>
+        <button
+          onClick={() => window.location.reload()}
+          className="text-xs py-2"
+          style={{ color: "var(--color-text-muted)" }}
+        >
+          重新載入
+        </button>
+      </div>
+    );
   }
 
   // Loading / hydration guard
@@ -271,7 +404,7 @@ export default function BookingPage() {
   }
 
   // Success state
-  if (step === 6) {
+  if (step === 7) {
     const isPendingApproval = selectedService?.requiresApproval === true;
 
     let calendarUrl = "";
@@ -279,7 +412,10 @@ export default function BookingPage() {
       const dateClean = bookingResult.date.replace(/-/g, "");
       const startClean = bookingResult.startTime.replace(":", "");
       const endClean = bookingResult.endTime.replace(":", "");
-      const title = encodeURIComponent(`${bookingResult.service} - ${bookingResult.provider}`);
+      const showProvider = selectedService?.showProviderSelection === true;
+      const title = encodeURIComponent(
+        showProvider ? `${bookingResult.service} - ${bookingResult.provider}` : bookingResult.service
+      );
       const details = encodeURIComponent(
         bookingResult.googleMeetUrl ? `會議連結：${bookingResult.googleMeetUrl}` : isPendingApproval ? "預約待審核" : "預約已確認"
       );
@@ -287,8 +423,8 @@ export default function BookingPage() {
     }
 
     return (
-      <div className="px-4 pt-12 pb-8">
-        <div className="rounded-2xl p-8 text-center" style={{ background: "var(--color-bg-card)", boxShadow: "var(--shadow-elevated)", border: "1px solid var(--color-border)" }}>
+      <div className="px-4 pt-4 pb-4 max-w-md mx-auto">
+        <div className="rounded-2xl p-6 text-center" style={{ background: "var(--color-bg-card)", boxShadow: "var(--shadow-elevated)", border: "1px solid var(--color-border)" }}>
           {isPendingApproval ? (
             <div className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4" style={{ background: "linear-gradient(135deg, #FEF3C7, #FDE68A)" }}>
               <svg className="w-8 h-8" style={{ color: "#D97706" }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -305,92 +441,95 @@ export default function BookingPage() {
           <h2 className="text-xl font-bold mb-2" style={{ color: "var(--color-text)" }}>
             {isPendingApproval ? "您的預約已提交，等待審核中" : "預約成功！"}
           </h2>
-          <p className="text-sm mb-6" style={{ color: "var(--color-text-muted)" }}>
+          <p className="text-sm mb-4" style={{ color: "var(--color-text-muted)" }}>
             {isPendingApproval
               ? "管理員審核通過後，您將收到確認通知"
               : bookingResult?.googleMeetUrl ? "會議連結已發送到您的 LINE" : "確認訊息已發送到您的 LINE"
             }
           </p>
-          {!isPendingApproval && calendarUrl && (
-            <a
-              href={calendarUrl}
-              className="inline-flex items-center gap-2 px-5 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 active:scale-[0.98]"
-              style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))", boxShadow: "0 4px 12px rgba(37,99,235,0.25)" }}
-              target="_blank" rel="noopener noreferrer"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              加入行事曆
-            </a>
+
+          {/* 預約明細 */}
+          {bookingResult && (
+            <div className="rounded-xl p-4 mb-5 text-left" style={{ background: "var(--color-bg)", border: "1px solid var(--color-border)" }}>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--color-text-muted)" }}>預約項目</span>
+                  <span className="font-medium" style={{ color: "var(--color-text)" }}>{bookingResult.service}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--color-text-muted)" }}>預約時間</span>
+                  <span className="font-medium" style={{ color: "var(--color-text)" }}>{bookingResult.date} {bookingResult.startTime}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span style={{ color: "var(--color-text-muted)" }}>時長</span>
+                  <span className="font-medium" style={{ color: "var(--color-text)" }}>{selectedService?.duration || 0} 分鐘</span>
+                </div>
+              </div>
+            </div>
           )}
+
+          {/* 活動獎勵 */}
+          {bookingResult?.rewards && bookingResult.rewards.length > 0 && (
+            <div className="mb-5">
+              {bookingResult.rewards.map((reward, idx) => {
+                const rewardParts: string[] = [];
+                if (reward.points > 0) rewardParts.push(`${reward.points} 點`);
+                if (reward.tickets > 0) rewardParts.push(`${reward.tickets} 張票券`);
+                return (
+                  <div
+                    key={idx}
+                    className="rounded-xl p-4 mb-2 text-center mx-auto"
+                    style={{ background: "linear-gradient(135deg, #FEF3C7, #FFEDD5)", border: "1px solid #FDE68A" }}
+                  >
+                    <p className="text-lg mb-1">🎉 活動獎勵</p>
+                    <p className="font-bold text-base" style={{ color: "#B45309" }}>
+                      您已獲得 {rewardParts.join(" + ")}！
+                    </p>
+                    <p className="text-xs mt-1" style={{ color: "#92400E" }}>{reward.name}</p>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 按鈕區 */}
+          <div className="space-y-3">
+            {!isPendingApproval && calendarUrl && (
+              <a
+                href={calendarUrl}
+                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-semibold text-white transition-all duration-200 active:scale-[0.98]"
+                style={{ background: "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))", boxShadow: "0 4px 12px rgba(37,99,235,0.25)" }}
+                target="_blank" rel="noopener noreferrer"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                加入行事曆
+              </a>
+            )}
+            <button
+              onClick={() => { window.location.href = "/member"; }}
+              className="w-full flex items-center justify-center gap-1.5 py-3 rounded-xl text-sm font-semibold transition-all duration-200 active:scale-[0.98]"
+              style={{ color: "var(--color-primary)", border: "1.5px solid var(--color-primary)" }}
+            >
+              前往會員專區
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
-  // Visible steps for the indicator
-  const visibleSteps = ALL_STEPS.filter((s) => !skippedSteps.has(s.key));
-
   return (
     <div className="max-w-md mx-auto pb-8">
-      {/* Step indicator — pure CSS grid, circles centered, lines as background */}
-      <div className="px-4 pt-4 pb-2">
-        <div className="relative">
-          {/* Connecting lines layer */}
-          <div className="absolute top-[14px] left-0 right-0 flex px-[calc(50%/var(--col-count))]" style={{ "--col-count": visibleSteps.length } as React.CSSProperties}>
-            {visibleSteps.slice(0, -1).map((s, i) => {
-              const nextStep = visibleSteps[i + 1];
-              const isFilled = step > s.key && step >= nextStep.key;
-              const isHalf = step >= nextStep.key;
-              return (
-                <div key={s.key} className="flex-1 h-0.5 rounded-full transition-all duration-300"
-                  style={{ background: isFilled || isHalf ? "var(--color-primary)" : "var(--color-border)" }}
-                />
-              );
-            })}
-          </div>
-          {/* Circles + labels */}
-          <div style={{ display: "grid", gridTemplateColumns: `repeat(${visibleSteps.length}, 1fr)` }}>
-            {visibleSteps.map((s, i) => {
-              const isActive = step === s.key;
-              const isCompleted = step > s.key;
-              return (
-                <div key={s.key} className="flex flex-col items-center relative z-10">
-                  <div
-                    className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold transition-all duration-300"
-                    style={{
-                      background: isActive
-                        ? "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))"
-                        : isCompleted ? "var(--color-primary)" : "var(--color-border)",
-                      color: isActive || isCompleted ? "#fff" : "var(--color-text-muted)",
-                      boxShadow: isActive ? "0 2px 8px rgba(37,99,235,0.3)" : "none",
-                    }}
-                  >
-                    {isCompleted ? (
-                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                      </svg>
-                    ) : (i + 1)}
-                  </div>
-                  <span
-                    className="text-[10px] mt-1 font-medium transition-all duration-300"
-                    style={{ color: isActive ? "var(--color-primary)" : isCompleted ? "var(--color-text)" : "var(--color-text-muted)" }}
-                  >
-                    {s.label}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-
       {/* Back button */}
       {(() => {
         let prev = step - 1;
         while (prev >= 1 && skippedSteps.has(prev)) prev--;
-        return prev >= 1 && step <= 5 ? (
+        return prev >= 1 && step <= 6 ? (
           <div className="px-4 mb-1">
             <button onClick={handleBack} className="inline-flex items-center gap-1 text-sm py-2 transition-colors duration-150" style={{ color: "var(--color-text-muted)" }}>
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -402,7 +541,7 @@ export default function BookingPage() {
         ) : null;
       })()}
 
-      {step === 1 && <ServiceSelect services={services} onSelect={handleServiceSelect} />}
+      {step === 1 && <ServiceSelect services={services} onSelect={handleServiceSelect} promotions={promotions} />}
       {step === 2 && (
         <ProviderSelect
           providers={providers}
@@ -416,7 +555,7 @@ export default function BookingPage() {
       )}
       {step === 3 && selectedProvider && selectedService && (
         <div>
-          <CalendarPicker providerId={selectedProvider.id} serviceId={selectedService.id} onSelect={handleDateSelect} maxDays={bookingWindowDays} />
+          <CalendarPicker providerId={selectedProvider.id} serviceId={selectedService.id} onSelect={handleDateSelect} maxDays={bookingWindowDays} minAdvanceDays={selectedService.minAdvanceDays} />
           {selectedDate && (
             <TimeSlotPicker providerId={selectedProvider.id} serviceId={selectedService.id} date={selectedDate} onSelect={handleSlotSelect} />
           )}
@@ -429,7 +568,14 @@ export default function BookingPage() {
           onSubmit={handleFormSubmit}
         />
       )}
-      {step === 5 && selectedService && selectedProvider && selectedSlot && (
+      {step === 5 && selectedService && (
+        <PaymentSelect
+          service={{ id: selectedService.id, name: selectedService.name, price: selectedService.price || 0, acceptTicket: selectedService.acceptTicket, acceptPoints: selectedService.acceptPoints, pointsPerUnit: selectedService.pointsPerUnit }}
+          lineUserId={lineUserId}
+          onSelect={handlePaymentSelect}
+        />
+      )}
+      {step === 6 && selectedService && selectedProvider && selectedSlot && (
         <BookingConfirm
           data={{
             serviceName: selectedService.name, serviceDuration: selectedService.duration,
@@ -437,8 +583,62 @@ export default function BookingPage() {
             startTime: selectedSlot.startTime, endTime: selectedSlot.endTime,
             customerName: formData.name || "", customerPhone: formData.phone || "", notes: formData.notes || "",
           }}
-          onConfirm={handleConfirm} onBack={() => setStep(4)} submitting={submitting} visibleFields={confirmationFields}
+          paymentSummary={paymentInfo && selectedService.price && selectedService.price > 0 ? {
+            method: paymentInfo.method,
+            pointsUsed: paymentInfo.pointsUsed,
+            remaining: paymentInfo.method === "points" && paymentInfo.pointsUsed
+              ? selectedService.price - Math.floor(paymentInfo.pointsUsed / (selectedService.pointsPerUnit || 1))
+              : undefined,
+            price: selectedService.price,
+          } : null}
+          onConfirm={handleConfirm} onBack={handleBack} submitting={submitting} showProvider={selectedService?.showProviderSelection}
         />
+      )}
+
+      {/* Disclaimer overlay */}
+      {showDisclaimer && selectedService?.disclaimerText && (
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40">
+          <div className="bg-white w-full max-w-md rounded-t-2xl sm:rounded-2xl max-h-[85vh] flex flex-col" style={{ boxShadow: "var(--shadow-elevated)" }}>
+            <div className="p-5 border-b" style={{ borderColor: "var(--color-border)" }}>
+              <h3 className="text-lg font-bold" style={{ color: "var(--color-text)" }}>注意事項</h3>
+              <p className="text-xs mt-1" style={{ color: "var(--color-text-muted)" }}>請詳閱以下內容</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-5">
+              <div className="text-sm whitespace-pre-wrap leading-relaxed" style={{ color: "var(--color-text)" }}>
+                {selectedService.disclaimerText}
+              </div>
+            </div>
+            <div className="p-5 border-t space-y-3" style={{ borderColor: "var(--color-border)" }}>
+              <label className="flex items-start gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={disclaimerAgreed}
+                  onChange={(e) => setDisclaimerAgreed(e.target.checked)}
+                  className="mt-0.5 w-5 h-5 rounded"
+                />
+                <span className="text-sm font-medium" style={{ color: "var(--color-text)" }}>我已閱讀並同意上述事項</span>
+              </label>
+              <button
+                onClick={() => {
+                  if (!disclaimerAgreed) return;
+                  setShowDisclaimer(false);
+                  if (pendingServiceAction) {
+                    pendingServiceAction();
+                    setPendingServiceAction(null);
+                  }
+                }}
+                disabled={!disclaimerAgreed}
+                className="w-full text-white py-3 rounded-xl font-semibold text-base transition-all duration-200 active:scale-[0.98] disabled:opacity-40"
+                style={{
+                  background: disclaimerAgreed ? "linear-gradient(135deg, var(--color-primary), var(--color-primary-light))" : "var(--color-border)",
+                  minHeight: "48px",
+                }}
+              >
+                繼續預約
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

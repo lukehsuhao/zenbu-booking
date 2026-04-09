@@ -28,6 +28,13 @@ export async function POST(req: NextRequest) {
   });
 
   const DEFAULT_PROVIDER_MESSAGE = "提醒：{{姓名}} 預約了 {{服務名稱}}，時間為 {{日期}} {{時間}}。";
+  const DEFAULT_ADMIN_MESSAGE = "【新預約通知】{{姓名}} 預約了 {{服務名稱}}，時間：{{日期}} {{時間}}，提供者：{{提供者}}。";
+
+  // Pre-fetch admin team members with LINE connected
+  const adminMembers = await prisma.teamMember.findMany({
+    where: { lineUserId: { not: null } },
+    select: { lineUserId: true },
+  });
 
   let sent = 0;
 
@@ -66,6 +73,30 @@ export async function POST(req: NextRequest) {
           await pushMessage(b.provider.lineUserId, providerMessage);
         } catch (provErr) {
           console.error(`Failed to send provider notification for reminder ${reminder.id}:`, provErr);
+        }
+      }
+
+      // Send admin notification if enabled
+      if (matchingRule?.notifyAdmin && adminMembers.length > 0) {
+        const adminTemplate = matchingRule.adminMessageTemplate || DEFAULT_ADMIN_MESSAGE;
+        const dateStr = new Date(b.date).toLocaleDateString("zh-TW");
+        const adminMessage = adminTemplate
+          .replace(/\{\{姓名\}\}/g, b.customerName)
+          .replace(/\{\{電話\}\}/g, b.customerPhone)
+          .replace(/\{\{服務名稱\}\}/g, b.service.name)
+          .replace(/\{\{提供者\}\}/g, b.provider.name)
+          .replace(/\{\{日期\}\}/g, dateStr)
+          .replace(/\{\{時間\}\}/g, `${b.startTime} - ${b.endTime}`)
+          .replace(/\{\{備註\}\}/g, b.notes || "");
+
+        for (const admin of adminMembers) {
+          if (admin.lineUserId) {
+            try {
+              await pushMessage(admin.lineUserId, adminMessage);
+            } catch (adminErr) {
+              console.error(`Failed to send admin notification for reminder ${reminder.id}:`, adminErr);
+            }
+          }
         }
       }
 

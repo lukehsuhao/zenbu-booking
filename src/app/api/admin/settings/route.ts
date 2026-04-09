@@ -21,13 +21,16 @@ export async function PUT(req: NextRequest) {
   const { rules } = await req.json();
   await prisma.reminderRule.deleteMany();
   await prisma.reminderRule.createMany({
-    data: rules.map((r: { type: string; minutesBefore: number; serviceId?: string; messageTemplate?: string | null; notifyProvider?: boolean; providerMessageTemplate?: string | null }) => ({
+    data: rules.map((r: { type: string; timing?: string; minutesBefore: number; serviceId?: string; messageTemplate?: string | null; notifyProvider?: boolean; providerMessageTemplate?: string | null; notifyAdmin?: boolean; adminMessageTemplate?: string | null }) => ({
       type: r.type,
+      timing: r.timing || "before",
       minutesBefore: r.minutesBefore,
       serviceId: r.serviceId || null,
       messageTemplate: r.messageTemplate || null,
       notifyProvider: r.notifyProvider ?? false,
       providerMessageTemplate: r.providerMessageTemplate || null,
+      notifyAdmin: r.notifyAdmin ?? false,
+      adminMessageTemplate: r.adminMessageTemplate || null,
     })),
   });
 
