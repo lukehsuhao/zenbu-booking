@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { initLiff } from "@/lib/liff";
 import { VideoPlayer } from "@/components/liff/video-player";
+import { BookingHeaderSkeleton, BookingContentSkeleton } from "@/components/booking/booking-skeleton";
 
 type ThemeData = {
   showStoreFront: boolean;
@@ -51,6 +52,9 @@ export default function StoreFrontPage() {
 
   useEffect(() => {
     setMounted(true);
+    // Check for ?service=xxx — skip storefront and go directly to booking
+    const hasServiceParam = typeof window !== "undefined" && new URLSearchParams(window.location.search).has("service");
+
     async function load() {
       // 初始化 LIFF（在 LINE 內自動取得用戶身份）
       try { await initLiff(); } catch { /* 非 LINE 環境也能用 */ }
@@ -63,8 +67,8 @@ export default function StoreFrontPage() {
             document.documentElement.style.setProperty("--color-primary", data.colors.primary);
             document.documentElement.style.setProperty("--color-accent", data.colors.accent);
           }
-          if (!data.showStoreFront) {
-            // No store front → go straight to booking
+          if (hasServiceParam || !data.showStoreFront) {
+            // Service param present or no store front → go straight to booking
             setView("booking");
           }
           setTheme(data);
@@ -91,12 +95,9 @@ export default function StoreFrontPage() {
 
   if (!mounted || loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-3">
-        <div
-          className="w-10 h-10 rounded-full border-3 border-t-transparent animate-spin"
-          style={{ borderColor: "var(--color-primary)", borderTopColor: "transparent" }}
-        />
-        <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>載入中...</p>
+      <div className="min-h-screen bg-white">
+        <BookingHeaderSkeleton />
+        <BookingContentSkeleton />
       </div>
     );
   }
@@ -107,7 +108,7 @@ export default function StoreFrontPage() {
       <h1
         className="text-xl font-bold cursor-pointer active:opacity-70 transition-opacity"
         style={{ color: "var(--color-text)" }}
-        onClick={() => setView(null)}
+        onClick={() => setView(theme?.showStoreFront ? null : "booking")}
       >
         {theme?.storeName || "線上預約"}
       </h1>

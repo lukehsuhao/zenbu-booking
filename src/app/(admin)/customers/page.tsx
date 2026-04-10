@@ -750,7 +750,7 @@ export default function CustomersPage() {
                     type="checkbox"
                     checked={customers.length > 0 && selectedIds.size === customers.length}
                     onChange={toggleSelectAll}
-                    className="rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]/20"
+                    className="w-5 h-5 rounded-md border-gray-300 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
                   />
                 </th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">用戶名稱</th>
@@ -759,13 +759,14 @@ export default function CustomersPage() {
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">預約次數</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">常用服務</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">票券</th>
+                <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider w-64">備註</th>
                 <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {customers.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center">
+                  <td colSpan={9} className="px-5 py-12 text-center">
                     <div className="flex flex-col items-center">
                       <svg className="w-10 h-10 text-slate-300 mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
@@ -785,7 +786,7 @@ export default function CustomersPage() {
                       checked={selectedIds.has(c.id)}
                       onClick={(e) => handleSelect(globalIndex, e)}
                       onChange={() => {}}
-                      className="rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]/20"
+                      className="w-5 h-5 rounded-md border-gray-300 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
                     />
                   </td>
                   <td className="px-5 py-3.5">
@@ -864,6 +865,18 @@ export default function CustomersPage() {
                         </>
                       )}
                     </div>
+                  </td>
+                  <td className="px-5 py-3.5 w-64">
+                    {c.notes ? (
+                      <div
+                        className="text-xs text-gray-600 w-64 truncate"
+                        title={c.notes}
+                      >
+                        {c.notes}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-300">-</span>
+                    )}
                   </td>
                   <td className="px-5 py-3.5 whitespace-nowrap">
                     <div className="flex items-center gap-2 whitespace-nowrap">

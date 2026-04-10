@@ -20,7 +20,15 @@ export async function GET(req: NextRequest) {
 
   if (month) {
     const [year, m] = month.split("-").map(Number);
-    const dates = await getAvailableDates(providerId, year, m, duration);
+    const dates = await getAvailableDates(
+      providerId,
+      year,
+      m,
+      duration,
+      service?.bufferBefore || 0,
+      service?.bufferAfter || 0,
+      service?.slotInterval || 30
+    );
     return NextResponse.json({ dates });
   }
 

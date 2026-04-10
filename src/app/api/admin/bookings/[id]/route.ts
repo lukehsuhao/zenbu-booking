@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { createCalendarEvent, deleteCalendarEvent } from "@/lib/google-calendar";
 import { pushMessage } from "@/lib/line-messaging";
+import { ruleMatchesService } from "@/lib/reminder-matching";
 
 function replaceVars(template: string, vars: Record<string, string>): string {
   let result = template;
@@ -193,9 +194,10 @@ export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: 
     await prisma.reminder.deleteMany({ where: { bookingId: id, sentAt: null } });
 
     const bookingDateTime = new Date(`${newDate}T${newStartTime}:00+08:00`);
-    const lineRules = await prisma.reminderRule.findMany({
-      where: { type: "line", OR: [{ serviceId: resolvedServiceId }, { serviceId: null }] },
+    const allLineRules = await prisma.reminderRule.findMany({
+      where: { type: "line", isActive: true },
     });
+    const lineRules = allLineRules.filter((r) => ruleMatchesService(r, resolvedServiceId));
 
     if (lineRules.length > 0) {
       await prisma.reminder.createMany({
@@ -317,9 +319,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   if (provider?.googleAccessToken) {
     const dateStr = booking.date.toISOString().slice(0, 10);
-    const serviceRules = await prisma.reminderRule.findMany({
-      where: { OR: [{ serviceId: booking.serviceId }, { serviceId: null }] },
-    });
+    const allRules = await prisma.reminderRule.findMany({ where: { isActive: true } });
+    const serviceRules = allRules.filter((r) => ruleMatchesService(r, booking.serviceId));
     const emailRules = serviceRules.filter((r: { type: string }) => r.type === "email");
     const reminderMinutes = emailRules.map((r: { minutesBefore: number }) => r.minutesBefore);
 

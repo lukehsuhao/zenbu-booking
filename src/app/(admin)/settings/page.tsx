@@ -11,11 +11,14 @@ type ReminderRule = {
   timing: string; // "before" | "after"
   minutesBefore: number;
   serviceId?: string | null;
+  serviceIds?: string[]; // array of service IDs; empty = all services
+  notifyCustomer?: boolean;
   messageTemplate?: string | null;
   notifyProvider: boolean;
   providerMessageTemplate?: string | null;
   notifyAdmin: boolean;
   adminMessageTemplate?: string | null;
+  isActive?: boolean;
 };
 
 const UNIT_OPTIONS = [
@@ -61,6 +64,103 @@ function generatePreview(template: string): string {
   return preview;
 }
 
+function ServiceMultiSelect({
+  selected,
+  allServices,
+  onChange,
+}: {
+  selected: string[];
+  allServices: { id: string; name: string }[];
+  onChange: (ids: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    if (open) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [open]);
+
+  const displayText = selected.length === 0
+    ? "所有服務"
+    : selected.length === 1
+    ? allServices.find((s) => s.id === selected[0])?.name || "1 個服務"
+    : `${selected.length} 個服務`;
+
+  function toggle(id: string) {
+    if (selected.includes(id)) {
+      onChange(selected.filter((i) => i !== id));
+    } else {
+      onChange([...selected, id]);
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="h-9 min-w-[160px] max-w-[200px] border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all flex items-center justify-between gap-2"
+      >
+        <span className="truncate">{displayText}</span>
+        <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+          <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+        </svg>
+      </button>
+      {open && (
+        <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-20 max-h-64 overflow-y-auto">
+          <div className="p-2 border-b border-gray-100 flex items-center gap-2">
+            <button
+              onClick={() => onChange([])}
+              className="text-xs text-[#2563EB] hover:underline"
+            >
+              清除選取（所有服務）
+            </button>
+            {selected.length < allServices.length && (
+              <button
+                onClick={() => onChange(allServices.map((s) => s.id))}
+                className="text-xs text-gray-500 hover:text-gray-700 hover:underline ml-auto"
+              >
+                全選
+              </button>
+            )}
+          </div>
+          <div className="py-1">
+            {allServices.length === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-4">尚無服務</p>
+            ) : (
+              allServices.map((s) => {
+                const checked = selected.includes(s.id);
+                return (
+                  <label
+                    key={s.id}
+                    className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggle(s.id)}
+                      className="w-4 h-4 rounded border-gray-300 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
+                    />
+                    <span className="text-gray-700">{s.name}</span>
+                  </label>
+                );
+              })
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const [mounted, setMounted] = useState(false);
   const [rules, setRules] = useState<ReminderRule[]>([]);
@@ -86,15 +186,33 @@ export default function SettingsPage() {
       const res = await fetch("/api/admin/settings");
       const data = await res.json();
       // Fill in default message for rules that don't have a custom template
-      setRules(data.map((r: ReminderRule) => ({
-        ...r,
-        timing: r.timing || "before",
-        messageTemplate: r.messageTemplate || DEFAULT_MESSAGE,
-        notifyProvider: r.notifyProvider ?? false,
-        providerMessageTemplate: r.providerMessageTemplate || DEFAULT_PROVIDER_MESSAGE,
-        notifyAdmin: r.notifyAdmin ?? false,
-        adminMessageTemplate: r.adminMessageTemplate || DEFAULT_ADMIN_MESSAGE,
-      })));
+      setRules(data.map((r: ReminderRule & { serviceIds?: string | string[] | null }) => {
+        // Parse serviceIds: might come as JSON string from DB or already as array
+        let svcIds: string[] = [];
+        if (Array.isArray(r.serviceIds)) {
+          svcIds = r.serviceIds;
+        } else if (typeof r.serviceIds === "string" && r.serviceIds) {
+          try {
+            const parsed = JSON.parse(r.serviceIds);
+            if (Array.isArray(parsed)) svcIds = parsed;
+          } catch { /* ignore */ }
+        } else if (r.serviceId) {
+          // Legacy: single serviceId → convert to array
+          svcIds = [r.serviceId];
+        }
+        return {
+          ...r,
+          serviceIds: svcIds,
+          timing: r.timing || "before",
+          isActive: r.isActive ?? true,
+          notifyCustomer: r.notifyCustomer ?? true,
+          messageTemplate: r.messageTemplate || DEFAULT_MESSAGE,
+          notifyProvider: r.notifyProvider ?? false,
+          providerMessageTemplate: r.providerMessageTemplate || DEFAULT_PROVIDER_MESSAGE,
+          notifyAdmin: r.notifyAdmin ?? false,
+          adminMessageTemplate: r.adminMessageTemplate || DEFAULT_ADMIN_MESSAGE,
+        };
+      }));
     } catch { /* ignore */ }
     setLoading(false);
   }
@@ -109,8 +227,21 @@ export default function SettingsPage() {
   }, [sessionStatus]);
 
   function addRule() {
-    const newRule = { type: "line", timing: "before", minutesBefore: 60, serviceId: null, messageTemplate: DEFAULT_MESSAGE, notifyProvider: false, providerMessageTemplate: DEFAULT_PROVIDER_MESSAGE, notifyAdmin: false, adminMessageTemplate: DEFAULT_ADMIN_MESSAGE };
-    setRules([newRule as ReminderRule, ...rules]);
+    const newRule: ReminderRule = {
+      type: "line",
+      timing: "before",
+      minutesBefore: 60,
+      serviceId: null,
+      serviceIds: [],
+      notifyCustomer: true,
+      messageTemplate: DEFAULT_MESSAGE,
+      notifyProvider: false,
+      providerMessageTemplate: DEFAULT_PROVIDER_MESSAGE,
+      notifyAdmin: false,
+      adminMessageTemplate: DEFAULT_ADMIN_MESSAGE,
+      isActive: true,
+    };
+    setRules([newRule, ...rules]);
     setCurrentPage(1);
     setExpandedTemplate(0);
   }
@@ -136,7 +267,7 @@ export default function SettingsPage() {
     });
   }
 
-  function updateRule(index: number, field: keyof ReminderRule, value: string | number | boolean | null) {
+  function updateRule(index: number, field: keyof ReminderRule, value: string | number | boolean | string[] | null) {
     setRules(rules.map((r, i) => (i === index ? { ...r, [field]: value } : r)));
   }
 
@@ -299,17 +430,19 @@ export default function SettingsPage() {
         <table className="w-full text-sm">
           <thead>
             <tr className="bg-gray-100 border-b border-gray-200">
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">通知方式</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時機</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">時間</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">適用服務</th>
-              <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">訊息</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">啟用</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">適用服務</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">通知方式</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">時機</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">時間</th>
+              <th className="px-6 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">通知對象</th>
+              <th className="px-6 py-3.5 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider whitespace-nowrap">訊息</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
             {rules.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-5 py-12 text-center">
+                <td colSpan={8} className="px-5 py-12 text-center">
                   <svg className="w-12 h-12 text-slate-300 mx-auto mb-3" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M14.857 17.082a23.848 23.848 0 005.454-1.31A8.967 8.967 0 0118 9.75v-.7V9A6 6 0 006 9v.75a8.967 8.967 0 01-2.312 6.022c1.733.64 3.56 1.085 5.455 1.31m5.714 0a24.255 24.255 0 01-5.714 0m5.714 0a3 3 0 11-5.714 0" />
                   </svg>
@@ -322,18 +455,39 @@ export default function SettingsPage() {
               const filtered = rules.filter((r) => {
                 if (filterType && r.type !== filterType) return false;
                 if (filterTiming && (r.timing || "before") !== filterTiming) return false;
-                if (filterService === "__all__" && r.serviceId) return false;
-                if (filterService && filterService !== "__all__" && r.serviceId !== filterService) return false;
+                if (filterService === "__all__" && r.serviceIds && r.serviceIds.length > 0) return false;
+                if (filterService && filterService !== "__all__" && !(r.serviceIds || []).includes(filterService)) return false;
                 return true;
               });
               return filtered;
             })().slice((currentPage - 1) * pageSize, currentPage * pageSize).map((rule, localIdx) => {
               const index = rules.indexOf(rule);
               const isExpanded = expandedTemplate === index;
+              const isActive = rule.isActive ?? true;
               return (
                 <React.Fragment key={index}>
                   <tr className={`hover:bg-gray-100/50 transition-colors duration-100 ${localIdx % 2 === 1 ? "bg-gray-100/30" : ""}`}>
-                    <td className="px-5 py-3">
+                    <td className="px-6 py-3 whitespace-nowrap">
+                      <button
+                        onClick={() => updateRule(index, "isActive", !isActive)}
+                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors duration-200 focus:outline-none ${
+                          isActive ? "bg-[#2563EB]" : "bg-slate-200"
+                        }`}
+                        title={isActive ? "停用" : "啟用"}
+                      >
+                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ${
+                          isActive ? "translate-x-5" : "translate-x-1"
+                        }`} />
+                      </button>
+                    </td>
+                    <td className="px-6 py-3 whitespace-nowrap">
+                      <ServiceMultiSelect
+                        selected={rule.serviceIds || []}
+                        allServices={allServices}
+                        onChange={(ids) => updateRule(index, "serviceIds", ids)}
+                      />
+                    </td>
+                    <td className="px-6 py-3 whitespace-nowrap">
                       <select
                         value={rule.type}
                         onChange={(e) => updateRule(index, "type", e.target.value)}
@@ -343,7 +497,7 @@ export default function SettingsPage() {
                         <option value="email">Email</option>
                       </select>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-6 py-3 whitespace-nowrap">
                       <div className="inline-flex h-9 rounded-lg border border-gray-200 overflow-hidden w-fit">
                         <button
                           type="button"
@@ -369,7 +523,7 @@ export default function SettingsPage() {
                         </button>
                       </div>
                     </td>
-                    <td className="px-5 py-3">
+                    <td className="px-6 py-3 whitespace-nowrap">
                       <div className="flex items-center gap-2">
                         <input
                           type="number"
@@ -397,18 +551,45 @@ export default function SettingsPage() {
                         </select>
                       </div>
                     </td>
-                    <td className="px-5 py-3">
-                      <select
-                        value={rule.serviceId || ""}
-                        onChange={(e) => updateRule(index, "serviceId", e.target.value || null)}
-                        className="h-9 border border-gray-200 rounded-lg px-3 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB] transition-all max-w-[160px]"
-                      >
-                        <option value="">所有服務</option>
-                        {allServices.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
+                    <td className="px-6 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => updateRule(index, "notifyCustomer", !(rule.notifyCustomer ?? true))}
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                            (rule.notifyCustomer ?? true)
+                              ? "bg-blue-50 text-blue-600 hover:bg-blue-100"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200 line-through decoration-gray-400"
+                          }`}
+                          title="點擊切換通知客戶"
+                        >
+                          客戶
+                        </button>
+                        <button
+                          onClick={() => updateRule(index, "notifyProvider", !rule.notifyProvider)}
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                            rule.notifyProvider
+                              ? "bg-emerald-50 text-emerald-600 hover:bg-emerald-100"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200 line-through decoration-gray-400"
+                          }`}
+                          title="點擊切換通知提供者"
+                        >
+                          提供者
+                        </button>
+                        <button
+                          onClick={() => updateRule(index, "notifyAdmin", !rule.notifyAdmin)}
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium transition-colors ${
+                            rule.notifyAdmin
+                              ? "bg-amber-50 text-amber-600 hover:bg-amber-100"
+                              : "bg-gray-100 text-gray-400 hover:bg-gray-200 line-through decoration-gray-400"
+                          }`}
+                          title="點擊切換通知管理員"
+                        >
+                          管理員
+                        </button>
+                      </div>
                     </td>
-                    <td className="px-5 py-3 whitespace-nowrap">
-                      <div className="flex items-center gap-2 whitespace-nowrap">
+                    <td className="px-6 py-3 whitespace-nowrap">
+                      <div className="flex items-center justify-end gap-2 whitespace-nowrap">
                         <button
                           onClick={() => setExpandedTemplate(isExpanded ? null : index)}
                           className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap ${
@@ -437,7 +618,7 @@ export default function SettingsPage() {
                   </tr>
                   {isExpanded && (
                     <tr>
-                      <td colSpan={5} className="px-5 py-4 bg-gray-100/50">
+                      <td colSpan={8} className="px-5 py-4 bg-gray-100/50">
                 {/* Tab buttons */}
                 <div className="flex gap-0 mb-4 border-b border-gray-200">
                   <button
@@ -765,15 +946,15 @@ export default function SettingsPage() {
           totalPages={Math.ceil(rules.filter((r) => {
             if (filterType && r.type !== filterType) return false;
             if (filterTiming && (r.timing || "before") !== filterTiming) return false;
-            if (filterService === "__all__" && r.serviceId) return false;
-            if (filterService && filterService !== "__all__" && r.serviceId !== filterService) return false;
+            if (filterService === "__all__" && r.serviceIds && r.serviceIds.length > 0) return false;
+            if (filterService && filterService !== "__all__" && !(r.serviceIds || []).includes(filterService)) return false;
             return true;
           }).length / pageSize)}
           totalItems={rules.filter((r) => {
             if (filterType && r.type !== filterType) return false;
             if (filterTiming && (r.timing || "before") !== filterTiming) return false;
-            if (filterService === "__all__" && r.serviceId) return false;
-            if (filterService && filterService !== "__all__" && r.serviceId !== filterService) return false;
+            if (filterService === "__all__" && r.serviceIds && r.serviceIds.length > 0) return false;
+            if (filterService && filterService !== "__all__" && !(r.serviceIds || []).includes(filterService)) return false;
             return true;
           }).length}
           pageSize={pageSize}

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { signOut } from "next-auth/react";
 import { AdminNav } from "./admin-nav";
-import { Calendar, Menu, X, LogOut } from "lucide-react";
+import { Calendar, Menu, X, LogOut, ExternalLink, Copy, Check } from "lucide-react";
 
 type NavItem = { href: string; label: string };
 
@@ -21,6 +21,40 @@ export function AdminShell({
   isAdmin: boolean;
 }) {
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [frontendMenuOpen, setFrontendMenuOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const frontendMenuRef = useRef<HTMLDivElement>(null);
+
+  const liffId = process.env.NEXT_PUBLIC_LIFF_ID || "";
+  const liffUrl = liffId ? `https://liff.line.me/${liffId}` : "";
+
+  useEffect(() => {
+    if (!frontendMenuOpen) return;
+    function handleClickOutside(e: MouseEvent) {
+      if (frontendMenuRef.current && !frontendMenuRef.current.contains(e.target as Node)) {
+        setFrontendMenuOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [frontendMenuOpen]);
+
+  async function handleCopyLink() {
+    if (!liffUrl) return;
+    try {
+      await navigator.clipboard.writeText(liffUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  function handleOpenFrontend() {
+    if (!liffUrl) return;
+    window.open(liffUrl, "_blank", "noopener,noreferrer");
+    setFrontendMenuOpen(false);
+  }
 
   const initials = userName ? userName.charAt(0).toUpperCase() : "U";
 
@@ -46,8 +80,55 @@ export function AdminShell({
 
         <div className="flex-1" />
 
-        {/* Right: user + logout */}
+        {/* Right: frontend link + user + logout */}
         <div className="flex items-center gap-2">
+          {/* Frontend link dropdown */}
+          {liffUrl && (
+            <div ref={frontendMenuRef} className="relative">
+              <button
+                onClick={() => setFrontendMenuOpen(!frontendMenuOpen)}
+                className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-sm font-medium text-gray-700 hover:text-[var(--color-brand)] hover:bg-gray-100 transition-colors"
+                title="前台連結"
+              >
+                <ExternalLink size={15} />
+                <span className="hidden sm:inline">前台連結</span>
+              </button>
+              {frontendMenuOpen && (
+                <div className="absolute right-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-lg shadow-lg z-50 overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <p className="text-xs text-gray-500 mb-1">前台連結</p>
+                    <p className="text-xs text-gray-700 font-mono truncate" title={liffUrl}>
+                      {liffUrl}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleCopyLink}
+                    className="w-full px-4 py-2.5 flex items-center gap-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left"
+                  >
+                    {copied ? (
+                      <>
+                        <Check size={15} className="text-emerald-500" />
+                        <span className="text-emerald-600">已複製到剪貼簿</span>
+                      </>
+                    ) : (
+                      <>
+                        <Copy size={15} className="text-gray-400" />
+                        <span>複製預約連結</span>
+                      </>
+                    )}
+                  </button>
+                  <button
+                    onClick={handleOpenFrontend}
+                    className="w-full px-4 py-2.5 flex items-center gap-2.5 text-sm text-gray-700 hover:bg-gray-50 transition-colors text-left border-t border-gray-100"
+                  >
+                    <ExternalLink size={15} className="text-gray-400" />
+                    <span>開啟新分頁</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
           <span className="hidden sm:block text-sm text-gray-700">{userName}</span>
           <div className="w-8 h-8 rounded-full bg-[var(--color-primary-100)] flex items-center justify-center">
             <span className="text-xs font-semibold text-[var(--color-brand)]">{initials}</span>

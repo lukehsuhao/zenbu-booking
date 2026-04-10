@@ -9,6 +9,7 @@ import { TimeSlotPicker } from "@/components/booking/time-slot-picker";
 import { DynamicForm } from "@/components/booking/dynamic-form";
 import { BookingConfirm } from "@/components/booking/booking-confirm";
 import { PaymentSelect } from "@/components/booking/payment-select";
+import { BookingContentSkeleton } from "@/components/booking/booking-skeleton";
 
 type Service = { id: string; name: string; description: string | null; duration: number; bookingWindowDays?: number; minAdvanceDays?: number; assignmentMode?: string; showProviderSelection?: boolean; hasDisclaimer?: boolean; disclaimerText?: string | null; requiresApproval?: boolean; price?: number; acceptTicket?: boolean; acceptPoints?: boolean; pointsPerUnit?: number };
 type Provider = { id: string; name: string; avatarUrl?: string | null };
@@ -143,7 +144,27 @@ export default function BookingPage() {
         }
       } catch { /* ignore */ }
 
-      if (servicesData.length === 1) {
+      // Check for ?service=xxx URL parameter to auto-select a service
+      const urlParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
+      const presetServiceId = urlParams?.get("service");
+      const presetService = presetServiceId
+        ? servicesData.find((s) => s.id === presetServiceId)
+        : null;
+
+      if (presetService) {
+        // Pre-selected service from URL — skip service selection step
+        newSkipped.add(1);
+        setSelectedService(presetService);
+        if (presetService.bookingWindowDays != null) {
+          setBookingWindowDays(presetService.bookingWindowDays);
+        }
+        if (!presetService.price || presetService.price === 0) {
+          newSkipped.add(5);
+        }
+        await loadFormFieldsForService(presetService.id, newSkipped);
+        setSkippedSteps(new Set(newSkipped));
+        await loadProvidersInit(presetService.id, newSkipped, presetService);
+      } else if (servicesData.length === 1) {
         newSkipped.add(1);
         setSelectedService(servicesData[0]);
         if (servicesData[0].bookingWindowDays != null) {
@@ -390,17 +411,9 @@ export default function BookingPage() {
     );
   }
 
-  // Loading / hydration guard
+  // Loading / hydration guard — use same skeleton as storefront so transition is seamless
   if (!mounted || step === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center min-h-screen gap-3">
-        <div
-          className="w-10 h-10 rounded-full border-3 border-t-transparent animate-spin"
-          style={{ borderColor: "var(--color-primary)", borderTopColor: "transparent" }}
-        />
-        <p className="text-sm" style={{ color: "var(--color-text-muted)" }}>載入中...</p>
-      </div>
-    );
+    return <BookingContentSkeleton />;
   }
 
   // Success state

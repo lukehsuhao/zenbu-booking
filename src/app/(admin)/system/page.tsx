@@ -58,7 +58,7 @@ export default function SystemPage() {
   }
 
   return (
-    <div>
+    <div className="max-w-4xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <div>
           <h1 className="text-xl font-semibold text-gray-900">系統設定</h1>

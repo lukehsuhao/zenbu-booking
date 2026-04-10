@@ -130,31 +130,35 @@ model Customer {
 }
 
 model CustomerTicket {
-  id         String    @id @default(cuid())
-  customerId String
-  serviceId  String
-  total      Int       // 總張數
-  used       Int       @default(0) // 已使用
-  expiresAt  DateTime? // 到期日（null=永不過期）
-  notes      String?
-  createdAt  DateTime  @default(now())
+  id          String    @id @default(cuid())
+  customerId  String
+  serviceId   String
+  total       Int       // 總張數
+  used        Int       @default(0) // 已使用
+  expiresAt   DateTime? // 到期日（null=永不過期）
+  promotionId String?   // reference to promotion if this ticket was granted via promotion
+  notes       String?
+  createdAt   DateTime  @default(now())
 
   customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   service  Service  @relation(fields: [serviceId], references: [id])
 
+  @@index([promotionId])
   @@map("customer_tickets")
 }
 
 model PointTransaction {
-  id         String   @id @default(cuid())
-  customerId String
-  amount     Int      // 正數=加點, 負數=扣點
-  reason     String   // "purchase" | "booking" | "refund" | "admin_adjust"
-  bookingId  String?
-  notes      String?
-  createdAt  DateTime @default(now())
+  id          String   @id @default(cuid())
+  customerId  String
+  amount      Int      // 正數=加點, 負數=扣點
+  reason      String   // "purchase" | "booking" | "refund" | "admin_adjust" | "reward"
+  bookingId   String?
+  promotionId String?  // reference to promotion if this is a promotion reward
+  notes       String?
+  createdAt   DateTime @default(now())
 
   @@index([customerId])
+  @@index([promotionId])
   @@map("point_transactions")
 }
 
@@ -241,14 +245,17 @@ model Reminder {
 model ReminderRule {
   id                      String  @id @default(cuid())
   serviceId               String?
+  serviceIds              String? // JSON array of service IDs (takes precedence over serviceId); null/empty = all services
   type                    String
   timing                  String  @default("before") // "before" | "after"
   minutesBefore           Int
+  notifyCustomer          Boolean @default(true)
   messageTemplate         String?
   notifyProvider          Boolean @default(false)
   providerMessageTemplate String?
   notifyAdmin             Boolean @default(false)
   adminMessageTemplate    String?
+  isActive                Boolean @default(true)
 
   @@map("reminder_rules")
 }

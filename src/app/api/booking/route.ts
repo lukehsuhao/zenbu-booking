@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { createCalendarEvent } from "@/lib/google-calendar";
 import { pushMessage } from "@/lib/line-messaging";
 import { getAvailableSlots } from "@/lib/availability";
+import { ruleMatchesService } from "@/lib/reminder-matching";
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
         await prisma.$transaction([
           prisma.customer.update({ where: { id: customer.id }, data: { points: { increment: promo.rewardPoints } } }),
           prisma.pointTransaction.create({
-            data: { customerId: customer.id, amount: promo.rewardPoints, reason: "reward", bookingId: booking.id, notes: `活動獎勵：${promo.name}` },
+            data: { customerId: customer.id, amount: promo.rewardPoints, reason: "reward", bookingId: booking.id, promotionId: promo.id, notes: `活動獎勵：${promo.name}` },
           }),
         ]);
       }
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest) {
       // Award tickets
       if ((promo.rewardType === "tickets" || promo.rewardType === "both") && promo.rewardTickets > 0 && promo.ticketServiceId) {
         await prisma.customerTicket.create({
-          data: { customerId: customer.id, serviceId: promo.ticketServiceId, total: promo.rewardTickets, notes: `活動獎勵：${promo.name}` },
+          data: { customerId: customer.id, serviceId: promo.ticketServiceId, total: promo.rewardTickets, promotionId: promo.id, notes: `活動獎勵：${promo.name}` },
         });
       }
     }
@@ -215,9 +216,8 @@ export async function POST(req: NextRequest) {
   let meetUrl: string | null = null;
 
   if (!isPending && provider?.googleAccessToken) {
-    const serviceRules = await prisma.reminderRule.findMany({
-      where: { OR: [{ serviceId }, { serviceId: null }] },
-    });
+    const allRules = await prisma.reminderRule.findMany({ where: { isActive: true } });
+    const serviceRules = allRules.filter((r) => ruleMatchesService(r, serviceId));
     const emailRules = serviceRules.filter(
       (r: { type: string; minutesBefore: number }) => r.type === "email"
     );
@@ -271,9 +271,10 @@ export async function POST(req: NextRequest) {
   }
 
   // Create LINE reminders
-  const lineRules = await prisma.reminderRule.findMany({
-    where: { type: "line", OR: [{ serviceId }, { serviceId: null }] },
+  const allLineRules = await prisma.reminderRule.findMany({
+    where: { type: "line", isActive: true },
   });
+  const lineRules = allLineRules.filter((r) => ruleMatchesService(r, serviceId));
 
   const bookingDateTime = new Date(`${date}T${startTime}:00+08:00`);
 

@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { deleteCalendarEvent, createCalendarEvent } from "@/lib/google-calendar";
 import { pushMessage } from "@/lib/line-messaging";
 import { getAvailableSlots } from "@/lib/availability";
+import { ruleMatchesService } from "@/lib/reminder-matching";
 
 function replaceVars(template: string, vars: Record<string, string>): string {
   let result = template;
@@ -214,9 +215,10 @@ export async function PUT(
   // Recreate reminders
   await prisma.reminder.deleteMany({ where: { bookingId: id, sentAt: null } });
   const bookingDateTime = new Date(`${date}T${startTime}:00+08:00`);
-  const lineRules = await prisma.reminderRule.findMany({
-    where: { type: "line", OR: [{ serviceId: booking.serviceId }, { serviceId: null }] },
+  const allLineRules = await prisma.reminderRule.findMany({
+    where: { type: "line", isActive: true },
   });
+  const lineRules = allLineRules.filter((r) => ruleMatchesService(r, booking.serviceId));
   if (lineRules.length > 0) {
     await prisma.reminder.createMany({
       data: lineRules.map((rule) => ({

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 
-type TimeSlot = { startTime: string; endTime: string };
+type TimeSlot = { startTime: string; endTime: string; booked?: boolean };
 
 function parseHour(time: string) {
   return parseInt(time.split(":")[0], 10);
@@ -31,9 +31,25 @@ export function TimeSlotPicker({ providerId, serviceId, date, onSelect }: {
 
   if (loading) {
     return (
-      <div className="px-4 py-8 text-center">
-        <div className="inline-block w-6 h-6 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "var(--color-primary)", borderTopColor: "transparent" }} />
-        <p className="text-sm mt-2" style={{ color: "var(--color-text-muted)" }}>載入中...</p>
+      <div ref={containerRef} className="px-4 pt-2 pb-4">
+        <div className="h-6 w-32 rounded bg-gray-200 animate-pulse mb-1" />
+        <div className="h-4 w-20 rounded bg-gray-200 animate-pulse mb-4" />
+        <div className="mb-4">
+          <div className="h-4 w-12 rounded bg-gray-200 animate-pulse mb-2" />
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-11 rounded-xl bg-gray-100 animate-pulse" />
+            ))}
+          </div>
+        </div>
+        <div>
+          <div className="h-4 w-12 rounded bg-gray-200 animate-pulse mb-2" />
+          <div className="grid grid-cols-3 gap-2">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-11 rounded-xl bg-gray-100 animate-pulse" />
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -52,22 +68,30 @@ export function TimeSlotPicker({ providerId, serviceId, date, onSelect }: {
   function renderSlots(list: TimeSlot[]) {
     return (
       <div className="grid grid-cols-3 gap-2">
-        {list.map((slot) => (
-          <button
-            key={`${slot.startTime}-${slot.endTime}`}
-            onClick={() => onSelect(slot)}
-            className="rounded-xl py-3 text-center text-sm font-medium transition-all duration-200 active:scale-95"
-            style={{
-              background: "var(--color-bg-card)",
-              border: "1px solid var(--color-border)",
-              color: "var(--color-text)",
-              boxShadow: "var(--shadow-soft)",
-              minHeight: "44px",
-            }}
-          >
-            {slot.startTime}
-          </button>
-        ))}
+        {list.map((slot) => {
+          const booked = slot.booked === true;
+          return (
+            <button
+              key={`${slot.startTime}-${slot.endTime}`}
+              onClick={() => !booked && onSelect(slot)}
+              disabled={booked}
+              aria-label={booked ? `${slot.startTime} 已被預約` : slot.startTime}
+              className={`rounded-xl py-3 text-center text-sm font-medium transition-all duration-200 ${booked ? "cursor-not-allowed" : "active:scale-95"}`}
+              style={{
+                background: booked ? "#f9fafb" : "var(--color-bg-card)",
+                border: "1px solid var(--color-border)",
+                color: booked ? "#9ca3af" : "var(--color-text)",
+                boxShadow: booked ? "none" : "var(--shadow-soft)",
+                minHeight: "44px",
+                textDecoration: booked ? "line-through" : "none",
+                textDecorationColor: booked ? "#fca5a5" : "transparent",
+                textDecorationThickness: booked ? "2px" : undefined,
+              }}
+            >
+              {slot.startTime}
+            </button>
+          );
+        })}
       </div>
     );
   }

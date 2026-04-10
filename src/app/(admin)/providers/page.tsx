@@ -554,7 +554,7 @@ export default function ProvidersPage() {
                   type="checkbox"
                   checked={filteredProviders.length > 0 && selectedIds.size === filteredProviders.length}
                   onChange={toggleSelectAll}
-                  className="rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]/20"
+                  className="w-5 h-5 rounded-md border-gray-300 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
                 />
               </th>
               <th className="px-5 py-3.5 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">提供者</th>
@@ -584,7 +584,7 @@ export default function ProvidersPage() {
                       checked={selectedIds.has(p.id)}
                       onClick={(e) => handleSelectRow(globalIndex, e)}
                       onChange={() => {}}
-                      className="rounded border-slate-300 text-[#2563EB] focus:ring-[#2563EB]/20"
+                      className="w-5 h-5 rounded-md border-gray-300 text-[#2563EB] focus:ring-[#2563EB]/20 cursor-pointer"
                     />
                   </td>
                   <td className="px-5 py-3.5">

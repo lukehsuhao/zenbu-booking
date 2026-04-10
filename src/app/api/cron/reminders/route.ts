@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { pushMessage } from "@/lib/line-messaging";
+import { ruleMatchesService } from "@/lib/reminder-matching";
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest) {
       // Send provider notification if enabled
       const matchingRule = reminderRules.find(
         (r) => r.minutesBefore === reminder.minutesBefore &&
-          (r.serviceId === b.serviceId || r.serviceId === null)
+          ruleMatchesService(r, b.serviceId)
       );
 
       if (matchingRule?.notifyProvider && b.provider.lineUserId) {

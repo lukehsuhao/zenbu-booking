@@ -11,7 +11,43 @@ export async function GET() {
   const promotions = await prisma.promotion.findMany({
     orderBy: { createdAt: "desc" },
   });
-  return NextResponse.json(promotions);
+
+  // Try to count distinct customers per promotion; fail gracefully if fields don't exist yet
+  const participantsByPromo = new Map<string, Set<string>>();
+  try {
+    const promoIds = promotions.map((p) => p.id);
+    if (promoIds.length > 0) {
+      const [pointTx, tickets] = await Promise.all([
+        prisma.pointTransaction.findMany({
+          where: { promotionId: { in: promoIds } },
+          select: { promotionId: true, customerId: true },
+        }),
+        prisma.customerTicket.findMany({
+          where: { promotionId: { in: promoIds } },
+          select: { promotionId: true, customerId: true },
+        }),
+      ]);
+      for (const tx of pointTx) {
+        if (!tx.promotionId) continue;
+        if (!participantsByPromo.has(tx.promotionId)) participantsByPromo.set(tx.promotionId, new Set());
+        participantsByPromo.get(tx.promotionId)!.add(tx.customerId);
+      }
+      for (const t of tickets) {
+        if (!t.promotionId) continue;
+        if (!participantsByPromo.has(t.promotionId)) participantsByPromo.set(t.promotionId, new Set());
+        participantsByPromo.get(t.promotionId)!.add(t.customerId);
+      }
+    }
+  } catch (err) {
+    console.error("Failed to load participant counts:", err);
+  }
+
+  const result = promotions.map((p) => ({
+    ...p,
+    participantCount: participantsByPromo.get(p.id)?.size || 0,
+  }));
+
+  return NextResponse.json(result);
 }
 
 export async function POST(req: NextRequest) {
